@@ -1,0 +1,47 @@
+{
+    "source_url": "https://example.com/",
+    "scan_status": "completed",
+    "total_violations": 3,
+    "processed_violations": 1,
+    "results": [
+        {
+            "issue_id": "landmark-one-main",
+            "status": "analysis_generated",
+            "analysis": {
+                "problem": "Missing main landmark",
+                "affected_users": [
+                    "Screen reader users",
+                    "Keyboard navigation users"
+                ],
+                "explanation": "The document lacks a main landmark, which assistive technologies use to help users quickly navigate to the primary content of the page.",
+                "wcag_reference": "1.3.1 Info and Relationships",
+                "recommended_fix": "Add a <main> element or role=\"main\" to wrap the primary content area of the document body.",
+                "corrected_code": "<main id=\"main-content\">...</main>",
+                "code_language": "html",
+                "verification_steps": [
+                    "Verify using an accessibility scanner that the missing main landmark error is resolved.",
+                    "Navigate the page with a screen reader to confirm the main landmark is announced correctly.",
+                    "Perform manual testing to ensure the primary content is properly enclosed."
+                ],
+                "human_review_required": true
+            },
+            "patch": {
+                "issue_id": "landmark-one-main",
+                "original_code": "<html lang=\"en\">",
+                "corrected_code": "<main id=\"main-content\">...</main>",
+                "recommended_fix": "Add a <main> element or role=\"main\" to wrap the primary content area of the document body.",
+                "validation": {
+                    "valid": true,
+                    "problems": [],
+                    "warnings": [
+                        "Static checks are not a security sandbox.",
+                        "Do not execute generated JavaScript or apply patches directly to the live website.",
+                        "Review the patch, preview it in an isolated environment, then re-run axe-core and manual tests."
+                    ]
+                },
+                "verification_status": "pending_rescan",
+                "human_review_required": true
+            }
+        }
+    ]
+}
