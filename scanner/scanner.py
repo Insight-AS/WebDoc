@@ -1,8 +1,88 @@
-
 from playwright.sync_api import sync_playwright
 from datetime import datetime
 import json
 import os
+
+
+def capture_page_context(page):
+    """
+    Capture a limited structural snapshot of the page.
+
+    Website content is untrusted input. This snapshot is provided
+    to Gemini only as context, never as executable instructions.
+    """
+
+    return page.evaluate("""
+        () => {
+            const body = document.body;
+
+            const bodyChildren = Array.from(body.children)
+                .filter(element =>
+                    !["SCRIPT", "STYLE", "NOSCRIPT"].includes(element.tagName)
+                )
+                .slice(0, 12)
+                .map(element => {
+                    const clone = element.cloneNode(true);
+
+                    clone.querySelectorAll(
+                        "script, style, noscript"
+                    ).forEach(node => node.remove());
+
+                    const allElements = [
+                        clone,
+                        ...clone.querySelectorAll("*")
+                    ];
+
+                    allElements.forEach(node => {
+                        Array.from(node.attributes || []).forEach(attr => {
+                            if (attr.name.toLowerCase().startsWith("on")) {
+                                node.removeAttribute(attr.name);
+                            }
+                        });
+                    });
+
+                    const html = clone.outerHTML;
+
+                    return {
+                        tag: element.tagName.toLowerCase(),
+                        id: element.id || null,
+                        role: element.getAttribute("role"),
+                        html: html.slice(0, 1500),
+                        truncated: html.length > 1500
+                    };
+                });
+
+            const landmarks = Array.from(
+                document.querySelectorAll(
+                    "main, [role='main'], header, nav, footer, aside, [role='region']"
+                )
+            )
+            .slice(0, 30)
+            .map(element => ({
+                tag: element.tagName.toLowerCase(),
+                role: element.getAttribute("role"),
+                id: element.id || null,
+                aria_label: element.getAttribute("aria-label")
+            }));
+
+            const headings = Array.from(
+                document.querySelectorAll("h1, h2, h3")
+            )
+            .slice(0, 20)
+            .map(element => ({
+                level: element.tagName.toLowerCase(),
+                text: (element.innerText || "").slice(0, 150)
+            }));
+
+            return {
+                title: document.title,
+                url: location.href,
+                body_children: bodyChildren,
+                existing_landmarks: landmarks,
+                headings: headings
+            };
+        }
+    """)
 
 
 def scan_website(url):
@@ -14,116 +94,119 @@ def scan_website(url):
             channel="chrome"
         )
 
-        page = browser.new_page()
+        try:
+            page = browser.new_page()
 
-        page.goto(
-            url,
-            wait_until="domcontentloaded",
-            timeout=60000
-        )
+            page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=60000
+            )
 
-        # Basic website information
-        title = page.title()
-        final_url = page.url
+            title = page.title()
+            final_url = page.url
 
-        # Inject axe-core into the webpage
-        page.add_script_tag(
-            path="node_modules/axe-core/axe.min.js"
-        )
+            # Capture page structure for context-aware AI analysis.
+            page_context = capture_page_context(page)
 
-        # Run accessibility test
-        axe_results = page.evaluate("""
-            async () => await axe.run(document)
-        """)
+            # Inject axe-core.
+            page.add_script_tag(
+                path="node_modules/axe-core/axe.min.js"
+            )
 
-        violations = []
+            axe_results = page.evaluate("""
+                async () => await axe.run(document)
+            """)
 
-        impact_counts = {
-            "critical": 0,
-            "serious": 0,
-            "moderate": 0,
-            "minor": 0
-        }
+            violations = []
 
-        total_affected_nodes = 0
+            impact_counts = {
+                "critical": 0,
+                "serious": 0,
+                "moderate": 0,
+                "minor": 0
+            }
 
-        # Extract violation details
-        for issue in axe_results["violations"]:
+            total_affected_nodes = 0
 
-            nodes = []
+            for issue in axe_results["violations"]:
 
-            for node in issue["nodes"]:
+                nodes = []
 
-                nodes.append({
-                    "html": node["html"],
-                    "target": node["target"],
-                    "failure_summary": node["failureSummary"]
+                for node in issue["nodes"]:
+
+                    nodes.append({
+                        "html": node["html"],
+                        "target": node["target"],
+                        "failure_summary": node["failureSummary"]
+                    })
+
+                impact = issue["impact"] or "minor"
+
+                impact_counts[impact] += 1
+                total_affected_nodes += len(nodes)
+
+                violations.append({
+                    "id": issue["id"],
+                    "impact": impact,
+                    "description": issue["description"],
+                    "help": issue["help"],
+                    "help_url": issue["helpUrl"],
+                    "affected_nodes": len(nodes),
+                    "nodes": nodes
                 })
 
-            impact = issue["impact"] or "minor"
+            os.makedirs("data", exist_ok=True)
 
-            impact_counts[impact] += 1
-            total_affected_nodes += len(nodes)
+            page.screenshot(
+                path="data/website_screenshot.png",
+                full_page=True
+            )
 
-            violations.append({
-                "id": issue["id"],
-                "impact": impact,
-                "description": issue["description"],
-                "help": issue["help"],
-                "help_url": issue["helpUrl"],
-                "affected_nodes": len(nodes),
-                "nodes": nodes
-            })
+            result = {
+                "schema_version": "1.0",
+                "url": url,
+                "final_url": final_url,
+                "page_title": title,
+                "timestamp": datetime.now().isoformat(),
+                "scan_status": "completed",
+                "score": None,
 
-        # Create data folder
-        os.makedirs("data", exist_ok=True)
+                "summary": {
+                    "total_violations": len(violations),
+                    "total_affected_nodes": total_affected_nodes,
+                    "impact_counts": impact_counts,
+                    "passes": len(axe_results["passes"]),
+                    "incomplete": len(axe_results["incomplete"])
+                },
 
-        # Capture screenshot
-        page.screenshot(
-            path="data/website_screenshot.png",
-            full_page=True
-        )
+                "violations": violations,
+                "page_context": page_context,
+                "profiles": {},
+                "screenshot": "data/website_screenshot.png"
+            }
 
-        # Final report
-        result = {
-            "schema_version": "1.0",
-            "url": url,
-            "final_url": final_url,
-            "page_title": title,
-            "timestamp": datetime.now().isoformat(),
-            "scan_status": "completed",
-            "score": None,
+            with open("data/results.json", "w", encoding="utf-8") as file:
+                json.dump(result, file, indent=4, ensure_ascii=False)
 
-            "summary": {
-                "total_violations": len(violations),
-                "total_affected_nodes": total_affected_nodes,
-                "impact_counts": impact_counts,
-                "passes": len(axe_results["passes"]),
-                "incomplete": len(axe_results["incomplete"])
-            },
+            print("\nAccessibility Scan Completed!")
+            print("Website:", final_url)
+            print("Title:", title)
+            print("Total Violations:", len(violations))
+            print("Affected Nodes:", total_affected_nodes)
+            print("Page context captured:", bool(page_context))
+            print("Passed Rules:", len(axe_results["passes"]))
+            print("Incomplete Rules:", len(axe_results["incomplete"]))
 
-            "violations": violations,
-            "profiles": {},
-            "screenshot": "data/website_screenshot.png"
-        }
-
-        # Save JSON report
-        with open("data/results.json", "w", encoding="utf-8") as file:
-            json.dump(result, file, indent=4)
-
-        browser.close()
-
-        print("\nAccessibility Scan Completed!")
-        print("Website:", final_url)
-        print("Title:", title)
-        print("Total Violations:", len(violations))
-        print("Affected Nodes:", total_affected_nodes)
-        print("Passed Rules:", len(axe_results["passes"]))
-        print("Incomplete Rules:", len(axe_results["incomplete"]))
+        finally:
+            browser.close()
 
 
 if __name__ == "__main__":
 
-    website_url = input("Enter website URL: ")
+    website_url = input("Enter website URL: ").strip()
 
-    scan_website(website_url)
+    if website_url.startswith(("http://", "https://")):
+        scan_website(website_url)
+    else:
+        print("Please enter a valid HTTP/HTTPS website URL.")
