@@ -839,24 +839,162 @@ elif selected_page == "WCAG Issues":
 
 
 elif selected_page == "Profiles":
-    page_heading("USER IMPACT", "Accessibility <span>profiles.</span>", "Understand how barriers can affect people with different access needs.")
-    profile_data = [
-        ("Blind users", "Screen-reader labels, landmarks and semantic structure.", 65),
-        ("Low-vision users", "Contrast, text resizing and magnification.", 72),
-        ("Colour-blind users", "Colour-independent cues and visual distinctions.", 78),
-        ("Deaf and hard-of-hearing users", "Captions and alternatives to audio.", 86),
-        ("Keyboard-only users", "Focus visibility and keyboard operability.", 60),
-        ("Cognitive and reading needs", "Clear structure, language and predictable interactions.", 81),
-    ]
-    cols = st.columns(3, gap="medium")
-    for col, (name, desc, score) in zip(cols * 2, profile_data):
-        with col:
-            with st.container(border=True):
-                st.markdown(f"**{name}**")
-                st.progress(score / 100)
-                st.caption(f"Illustrative profile score: {score}/100")
-                st.write(desc)
+    page_heading(
+        "USER IMPACT",
+        "Accessibility <span>profiles.</span>",
+        "Explore how detected accessibility barriers may affect different users.",
+    )
 
+    # Use the same latest persisted scan as Dashboard and WCAG Issues.
+    scan_data = load_latest_scan_data()
+
+    if not isinstance(scan_data, dict):
+        st.info("No scan results are available yet. Go to Home and analyse a website first.")
+    else:
+        violations = scan_data.get("violations")
+        if not isinstance(violations, list):
+            violations = []
+
+        website_url = (
+            scan_data.get("final_url")
+            or scan_data.get("url")
+            or st.session_state.get("wd_url")
+            or "Website URL not recorded"
+        )
+        st.caption(f"Website analysed: {website_url}")
+
+        # Map only rule IDs actually returned by the scanner. These mappings
+        # indicate potential relevance, not confirmed impact on an individual.
+        profile_definitions = [
+            {
+                "name": "Blind users",
+                "description": (
+                    "Screen-reader users rely on language metadata, accessible "
+                    "control names, meaningful links and semantic page structure."
+                ),
+                "rules": {
+                    "html-has-lang": "Language metadata helps screen readers pronounce content correctly.",
+                    "label": "Form controls need accessible labels.",
+                    "link-name": "Links need discernible names that communicate their purpose.",
+                    "list": "Lists should use valid semantic list structure.",
+                    "region": "Landmarks help screen-reader users navigate page sections.",
+                },
+            },
+            {
+                "name": "Low-vision users",
+                "description": (
+                    "Sufficient text and interface contrast can make content easier to perceive."
+                ),
+                "rules": {
+                    "color-contrast": "The scanner found foreground/background combinations below its contrast threshold.",
+                },
+            },
+            {
+                "name": "Colour-blind users",
+                "description": (
+                    "Contrast can support readability. This scan does not establish "
+                    "whether information is communicated by colour alone."
+                ),
+                "rules": {
+                    "color-contrast": "Low contrast may make some text or interface content harder to distinguish.",
+                },
+            },
+            {
+                "name": "Deaf and hard-of-hearing users",
+                "description": (
+                    "Captions and text alternatives help make audio and video content accessible."
+                ),
+                "rules": {},
+            },
+            {
+                "name": "Keyboard-only users",
+                "description": (
+                    "Keyboard users need operable controls, visible focus and a logical focus order."
+                ),
+                "rules": {},
+            },
+            {
+                "name": "Cognitive and reading needs",
+                "description": (
+                    "Language metadata, clear control labels, descriptive links and semantic "
+                    "grouping can make content easier to understand and navigate."
+                ),
+                "rules": {
+                    "html-has-lang": "Language metadata helps assistive technology identify the page language.",
+                    "label": "Clear form labels help users identify the purpose of controls.",
+                    "link-name": "Meaningful link names help users understand link purpose.",
+                    "list": "Semantic lists help organise related information.",
+                },
+            },
+        ]
+
+        issue_lookup = {}
+        for issue in violations:
+            if isinstance(issue, dict) and issue.get("id"):
+                issue_lookup[str(issue["id"])] = issue
+
+        st.info(
+            "These cards show potential relevance based on detected rule IDs. "
+            "They do not measure individual user impact or certify that a profile "
+            "has no accessibility barriers. A profile with no mapped findings "
+            "means this scan did not return a directly mapped rule."
+        )
+
+        profile_cols = st.columns(3, gap="medium")
+        for index, profile in enumerate(profile_definitions):
+            matched_issues = []
+            reported_affected_nodes = 0
+
+            for rule_id, relevance_note in profile["rules"].items():
+                issue = issue_lookup.get(rule_id)
+                if issue is None:
+                    continue
+
+                nodes = issue.get("nodes")
+                if not isinstance(nodes, list):
+                    nodes = []
+
+                try:
+                    affected_count = int(issue.get("affected_nodes"))
+                except (TypeError, ValueError):
+                    affected_count = len(nodes)
+
+                affected_count = max(0, affected_count)
+                reported_affected_nodes += affected_count
+                matched_issues.append((issue, relevance_note, affected_count))
+
+            with profile_cols[index % 3]:
+                with st.container(border=True):
+                    st.markdown(f"### {profile['name']}")
+                    st.write(profile["description"])
+
+                    metric_cols = st.columns(2)
+                    metric_cols[0].metric(
+                        "Relevant rules",
+                        len(matched_issues),
+                    )
+                    metric_cols[1].metric(
+                        "Reported affected nodes*",
+                        reported_affected_nodes,
+                    )
+
+                    if matched_issues:
+                        st.markdown("**Related scan findings**")
+                        for issue, relevance_note, affected_count in matched_issues:
+                            issue_title = issue.get("help") or issue.get("id") or "Accessibility issue"
+                            severity = str(issue.get("impact") or "Unknown").title()
+                            st.markdown(f"- **{issue_title}** · {severity} · {affected_count} nodes")
+                            st.caption(relevance_note)
+                    else:
+                        st.info(
+                            "No directly mapped violations were detected for this "
+                            "profile in the current scan. This is not proof of full accessibility."
+                        )
+
+        st.caption(
+            "*Affected-node counts are summed across matched rules. The same page "
+            "element may be counted under multiple rules or profiles."
+        )
 
 elif selected_page == "Heatmap":
     page_heading("VISUAL DIAGNOSIS", "Accessibility <span>heatmap.</span>", "Locate detected issues visually and inspect the affected page elements.")
