@@ -10,7 +10,7 @@ load_dotenv(MODULE_DIR / ".env", override=True)
 from ai_helper import analyze_issue
 from remediation import build_patch_package
 
-INPUT_FILE = MODULE_DIR / "examples" / "backend_results.json"
+INPUT_FILE = MODULE_DIR.parent / "data" / "results.json"
 OUTPUT_FILE = MODULE_DIR / "data" / "ai_analysis_results.json"
 
 

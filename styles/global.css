@@ -1,0 +1,581 @@
+
+/* ==========================================
+   WEBDOC — PREMIUM DESIGN SYSTEM
+   ========================================== */
+
+* {
+    box-sizing: border-box;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+:root {
+    scroll-behavior: smooth;
+}
+
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"] {
+    background: var(--wd-bg) !important;
+    color: var(--wd-text) !important;
+}
+
+[data-testid="stHeader"] {
+    background: transparent !important;
+}
+
+[data-testid="stToolbar"] {
+    background: transparent !important;
+}
+
+[data-testid="stMainBlockContainer"] {
+    max-width: 1440px !important;
+    padding: 1.8rem clamp(1rem, 4vw, 4rem) 4rem !important;
+}
+
+/* ==========================================
+   NAVIGATION
+   ========================================== */
+
+.wd-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 55px;
+}
+
+.wd-logo {
+    height: 44px;
+    width: 44px;
+    border-radius: 14px;
+    background: var(--wd-primary);
+    color: #FFFFFF;
+    display: grid;
+    place-items: center;
+    font-size: 22px;
+    font-weight: 800;
+    box-shadow: 0 8px 22px var(--wd-glow);
+}
+
+.wd-brand-name {
+    color: var(--wd-text);
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -1px;
+}
+
+.wd-brand-subtitle {
+    color: var(--wd-muted);
+    font-size: 8px;
+    letter-spacing: 1.7px;
+    margin-top: 2px;
+    font-weight: 700;
+}
+
+.wd-nav {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: clamp(12px, 2.5vw, 34px);
+    min-height: 55px;
+}
+
+.wd-nav a {
+    text-decoration: none;
+    color: var(--wd-muted);
+    font-size: 13px;
+    font-weight: 650;
+    transition: color 0.2s ease;
+}
+
+.wd-nav a:hover {
+    color: var(--wd-highlight);
+}
+
+/* Theme toggle */
+
+[data-testid="stWidgetLabel"] p,
+[data-testid="stToggle"] label {
+    color: var(--wd-text) !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+}
+
+/* ==========================================
+   DIVIDERS
+   ========================================== */
+
+.wd-divider {
+    width: 100%;
+    height: 1px;
+    background: var(--wd-border);
+    margin: 25px 0 30px;
+    border: none;
+}
+
+/* ==========================================
+   HERO SECTION
+   ========================================== */
+
+.wd-hero {
+    padding: 43px 12px 35px 0;
+    position: relative;
+}
+
+.wd-eyebrow,
+.wd-section-label {
+    color: var(--wd-highlight);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 2px;
+}
+
+.wd-eyebrow {
+    display: inline-block;
+    padding: 10px 15px;
+    border-radius: 40px;
+    background: var(--wd-soft);
+    border: 1px solid var(--wd-border);
+    margin-bottom: 24px;
+}
+
+.wd-hero-title {
+    color: var(--wd-text);
+    font-size: clamp(44px, 5.2vw, 72px);
+    line-height: 1.08;
+    font-weight: 800;
+    letter-spacing: -3.5px;
+    margin: 0 0 23px;
+    max-width: 650px;
+}
+
+.wd-hero-title span {
+    color: var(--wd-highlight);
+    display: inline-block;
+}
+
+.wd-hero-description {
+    color: var(--wd-muted);
+    font-size: 16px;
+    line-height: 1.9;
+    max-width: 530px;
+    margin-bottom: 25px;
+}
+
+.wd-pills {
+    display: flex;
+    gap: 9px;
+    flex-wrap: wrap;
+    margin-top: 22px;
+}
+
+.wd-pills span {
+    color: var(--wd-text);
+    background: var(--wd-soft);
+    border: 1px solid var(--wd-border);
+    border-radius: 30px;
+    padding: 9px 13px;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.wd-small-note {
+    color: var(--wd-muted);
+    font-size: 12px;
+    margin-top: 33px;
+}
+
+/* ==========================================
+   SCANNER PANEL
+   ========================================== */
+
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--wd-card) !important;
+    border: 1px solid var(--wd-border) !important;
+    border-radius: 22px !important;
+    box-shadow: 0 14px 40px var(--wd-glow);
+    padding: 10px;
+    transition: border-color 0.2s ease;
+}
+
+[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    border-color: var(--wd-highlight) !important;
+}
+
+.wd-panel-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 8px 2px 18px;
+}
+
+.wd-panel-label {
+    color: var(--wd-muted);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1.6px;
+}
+
+.wd-panel-title {
+    color: var(--wd-text);
+    font-size: 23px;
+    font-weight: 800;
+    margin-top: 7px;
+    letter-spacing: -0.8px;
+}
+
+.wd-ready {
+    color: var(--wd-highlight);
+    border: 1px solid var(--wd-border);
+    background: var(--wd-soft);
+    border-radius: 30px;
+    padding: 7px 11px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+/* Decorative scan graphic */
+
+.wd-visual-card {
+    background:
+        radial-gradient(
+            circle at 85% 12%,
+            var(--wd-glow),
+            transparent 35%
+        ),
+        linear-gradient(
+            135deg,
+            var(--wd-visual-start),
+            var(--wd-visual-end)
+        );
+}
+
+.wd-visual-top {
+    display: flex;
+    justify-content: space-between;
+    color: rgba(255,255,255,0.72);
+    font-size: 9px;
+    letter-spacing: 1.3px;
+    font-weight: 700;
+}
+
+.wd-visual-center {
+    display: flex;
+    align-items: center;
+    gap: 17px;
+    padding: 22px 0;
+}
+
+.wd-orbit {
+    width: 81px;
+    height: 81px;
+    flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.38);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    box-shadow:
+        0 0 0 8px rgba(255,255,255,0.05),
+        0 0 35px rgba(241,127,115,0.22);
+}
+
+.wd-orbit-inner {
+    height: 55px;
+    width: 55px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: #F17F73;
+    color: #173F60;
+    font-size: 23px;
+    font-weight: 800;
+}
+
+.wd-visual-heading {
+    color: #FFFFFF;
+    font-weight: 750;
+    font-size: 15px;
+}
+
+.wd-visual-sub {
+    color: rgba(255,255,255,0.72);
+    font-size: 10px;
+    line-height: 1.7;
+    margin-top: 5px;
+}
+
+.wd-check-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    border-top: 1px solid rgba(255,255,255,0.16);
+    padding: 10px 0;
+    font-size: 10px;
+    color: rgba(255,255,255,0.9);
+}
+
+.wd-check-row span:last-child {
+    color: #FFD1C8;
+    font-size: 9px;
+}
+
+/* Scanner input */
+
+.wd-form-heading {
+    font-size: 13px;
+    font-weight: 750;
+    color: var(--wd-text);
+    margin-bottom: 5px;
+}
+
+.wd-form-description {
+    font-size: 11px;
+    color: var(--wd-muted);
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+
+[data-testid="stTextInput"] input {
+    background: var(--wd-input) !important;
+    color: var(--wd-text) !important;
+    border: 1px solid var(--wd-border) !important;
+    border-radius: 11px !important;
+    min-height: 45px;
+}
+
+[data-testid="stTextInput"] input:focus {
+    border: 1px solid var(--wd-highlight) !important;
+    box-shadow: 0 0 0 2px var(--wd-glow) !important;
+}
+
+[data-testid="stTextInput"] label {
+    color: var(--wd-text) !important;
+}
+
+.stButton button,
+[data-testid="stFormSubmitButton"] button {
+    background: var(--wd-primary) !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 11px !important;
+    min-height: 46px;
+    font-weight: 750 !important;
+    transition: all 0.2s ease;
+}
+
+.stButton button:hover,
+[data-testid="stFormSubmitButton"] button:hover {
+    background: var(--wd-highlight) !important;
+    color: #FFFFFF !important;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px var(--wd-glow);
+}
+
+/* ==========================================
+   VALUE STRIP
+   ========================================== */
+
+.wd-value-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    padding: 13px 10px;
+}
+
+.wd-value-number {
+    font-size: 29px;
+    font-weight: 850;
+    color: var(--wd-highlight);
+    letter-spacing: -1px;
+}
+
+.wd-value-label {
+    color: var(--wd-muted);
+    font-size: 9px;
+    font-weight: 750;
+    letter-spacing: 1.3px;
+    margin-top: 5px;
+}
+
+/* ==========================================
+   FEATURES
+   ========================================== */
+
+.wd-section-intro {
+    margin: 45px 0 22px;
+}
+
+.wd-section-title {
+    color: var(--wd-text);
+    font-size: clamp(27px, 3vw, 39px);
+    font-weight: 820;
+    line-height: 1.2;
+    letter-spacing: -1.5px;
+    margin: 12px 0;
+}
+
+.wd-section-title span {
+    color: var(--wd-highlight);
+}
+
+.wd-section-description {
+    color: var(--wd-muted);
+    font-size: 14px;
+    line-height: 1.8;
+    max-width: 650px;
+}
+
+.wd-feature-card {
+    padding: 7px 4px 10px;
+    min-height: 165px;
+}
+
+.wd-feature-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 25px;
+}
+
+.wd-feature-top > span:first-child {
+    color: var(--wd-highlight);
+    font-size: 22px;
+    font-weight: 850;
+}
+
+.wd-feature-tag {
+    background: var(--wd-soft);
+    color: var(--wd-muted);
+    border-radius: 30px;
+    padding: 6px 9px;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.wd-feature-card h3 {
+    color: var(--wd-text);
+    font-size: 17px;
+    font-weight: 750;
+    margin: 0 0 9px;
+}
+
+.wd-feature-card p {
+    color: var(--wd-muted);
+    font-size: 12px;
+    line-height: 1.8;
+    margin: 0;
+}
+
+/* ==========================================
+   PROCESS STEPS
+   ========================================== */
+
+.wd-step-card {
+    border-top: 2px solid var(--wd-border);
+    padding: 22px 8px;
+    margin-top: 22px;
+}
+
+.wd-step-number {
+    color: var(--wd-highlight);
+    font-size: 13px;
+    font-weight: 850;
+    margin-bottom: 14px;
+}
+
+.wd-step-card h3 {
+    color: var(--wd-text);
+    font-size: 17px;
+    font-weight: 750;
+}
+
+.wd-step-card p {
+    color: var(--wd-muted);
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+/* ==========================================
+   FOOTER
+   ========================================== */
+
+.wd-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+    padding: 15px 0;
+    color: var(--wd-muted);
+    font-size: 11px;
+    line-height: 1.8;
+}
+
+.wd-footer strong {
+    color: var(--wd-text);
+    font-size: 16px;
+}
+
+/* ==========================================
+   ALERTS
+   ========================================== */
+
+[data-testid="stAlert"] {
+    border-radius: 12px;
+}
+
+/* ==========================================
+   RESPONSIVE LAYOUT
+   ========================================== */
+
+@media (max-width: 850px) {
+
+    [data-testid="stMainBlockContainer"] {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+
+    .wd-hero {
+        padding-top: 20px;
+    }
+
+    .wd-hero-title {
+        font-size: 45px;
+        letter-spacing: -2px;
+    }
+
+    .wd-value-strip {
+        gap: 10px;
+    }
+
+    .wd-value-number {
+        font-size: 22px;
+    }
+
+    .wd-nav {
+        gap: 12px;
+    }
+}
+
+@media (max-width: 550px) {
+
+    .wd-hero-title {
+        font-size: 39px;
+    }
+
+    .wd-footer {
+        flex-direction: column;
+    }
+
+    .wd-value-strip {
+        grid-template-columns: 1fr;
+        gap: 18px;
+    }
+}
+
+.stButton button,
+[data-testid="stFormSubmitButton"] button {
+    background: var(--wd-button-bg) !important;
+    color: var(--wd-button-text) !important;
+}
