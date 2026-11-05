@@ -1,7 +1,26 @@
-.env
-**/.env
+# Python virtual environments
+.venv/
+**/.venv/
 venv/
 **/venv/
+
+# Python cache
 __pycache__/
 **/__pycache__/
 *.pyc
+*.pyo
+
+# API keys and secrets
+.env
+**/.env
+.streamlit/secrets.toml
+
+# Node dependencies
+node_modules/
+**/node_modules/
+
+# Mac system files
+.DS_Store
+
+# Editor settings
+.vscode/

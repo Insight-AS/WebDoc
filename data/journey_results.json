@@ -1,0 +1,33 @@
+{
+    "url": "https://example.com",
+    "timestamp": "2026-11-05T15:07:25.844721",
+    "total_steps": 5,
+    "results": [
+        {
+            "step": "Open homepage",
+            "status": "passed",
+            "url": "https://example.com/"
+        },
+        {
+            "step": "Check navigation link",
+            "link_text": "Learn more",
+            "href": "https://iana.org/help/example-domains",
+            "status": "found"
+        },
+        {
+            "step": "Check buttons",
+            "status": "passed",
+            "total_buttons": 0
+        },
+        {
+            "step": "Check forms",
+            "status": "passed",
+            "total_forms": 0
+        },
+        {
+            "step": "Check page title",
+            "status": "passed",
+            "title": "Example Domain"
+        }
+    ]
+}
