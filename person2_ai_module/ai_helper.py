@@ -13,7 +13,7 @@ from typing import Any, Mapping
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 
 class AIConfigurationError(RuntimeError):
@@ -26,8 +26,6 @@ class AIServiceError(RuntimeError):
 
 class AccessibilityAnalysis(BaseModel):
     """Stable response contract consumed by the dashboard and remediation module."""
-
-    model_config = ConfigDict(extra="forbid")
 
     problem: str = Field(description="Short name of the accessibility problem")
     affected_users: list[str] = Field(
@@ -115,7 +113,7 @@ def _normalise_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
         "description": _clip(issue.get("description"), 600),
         "help": _clip(issue.get("help"), 600),
         "impact": _clip(issue.get("impact"), 40),
-        "wcag": _clip(wcag, 400),
+        "wcag": wcag,
         "selector": _clip(issue.get("selector"), 500),
         "html": _clip(issue.get("html"), 1800),
         "purpose": _clip(issue.get("purpose"), 500),
@@ -159,7 +157,7 @@ def analyze_issue(
                 system_instruction=SYSTEM_INSTRUCTION,
                 response_mime_type="application/json",
                 response_schema=AccessibilityAnalysis,
-                temperature=0.2,
+                
                 max_output_tokens=1400,
             ),
         )
@@ -212,7 +210,7 @@ if __name__ == "__main__":
         "description": "Buttons must have discernible text",
         "help": "Ensure buttons have discernible text",
         "impact": "serious",
-        "wcag": ["wcag412"],
+        "wcag": wcag,
         "html": "<button><svg aria-hidden='true'></svg></button>",
         "selector": "button.checkout",
         "purpose": "Open the shopping cart",
