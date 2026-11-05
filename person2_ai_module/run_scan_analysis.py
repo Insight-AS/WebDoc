@@ -1,4 +1,3 @@
-
 import json
 import time
 from pathlib import Path
@@ -278,17 +277,33 @@ def analyze_scan_results(
                 analysis_data,
             )
 
-            # Page-level main landmark issue needs page context and manual review.
+            # Applicability depends on successful static validation, not only
+            # on the issue type. Page-level landmark patches always require
+            # full-page context and must not be marked applicable automatically.
             page_level_issue = issue.get("id") == "landmark-one-main"
-            patch["patch_applicable"] = not page_level_issue
+            validation = patch.get("validation") or {}
+            static_validation_passed = validation.get("valid") is True
+
+            patch["patch_applicable"] = (
+                static_validation_passed and not page_level_issue
+            )
+            patch["human_review_required"] = True
 
             if page_level_issue:
                 patch["verification_status"] = "requires_page_context"
+                patch["patch_applicable"] = False
                 patch["review_note"] = (
                     "Review the complete page structure and existing landmarks. "
                     "Place primary page content inside one appropriate main landmark. "
                     "Do not replace the html element with a main fragment."
                 )
+            elif not static_validation_passed:
+                patch["verification_status"] = "rejected"
+                patch["patch_applicable"] = False
+            else:
+                # Static validation is not proof of accessibility. Keep the
+                # patch pending until a fresh scan verifies the change.
+                patch["verification_status"] = "pending_rescan"
 
             output.append({
                 "issue_id": issue_id,

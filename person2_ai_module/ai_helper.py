@@ -141,7 +141,10 @@ OUTPUT RULES:
 def _get_client() -> genai.Client:
     """Create Gemini client using the local environment configuration."""
 
-    load_dotenv()
+    load_dotenv(
+    os.path.join(os.path.dirname(__file__), ".env"),
+    override=True
+)
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
 
@@ -158,7 +161,7 @@ def _model_name() -> str:
     """Read Gemini model name from environment."""
 
     return (
-        os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+        os.getenv("GEMINI_MODEL", "gemini-3.5-flash").strip()
         or "gemini-3.8-flash"
     )
 

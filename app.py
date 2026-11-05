@@ -1,17 +1,24 @@
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
 import streamlit as st
 
+PROJECT_DIR = Path(__file__).resolve().parent
+
+SCANNER_RESULTS_FILE = (
+    PROJECT_DIR / "data" / "results.json"
+)
+
 AI_RESULTS_FILE = (
-    Path(__file__).resolve().parent
+    PROJECT_DIR
     / "person2_ai_module"
     / "data"
     / "ai_analysis_results.json"
 )
-
 
 st.set_page_config(
     page_title="WebDoc | AI Accessibility Doctor",
@@ -54,6 +61,89 @@ def normalise_url(raw):
     if not HOSTNAME_RE.match(hostname):
         return None
     return candidate
+def run_full_scan(url):
+    """Run website accessibility scan followed by Gemini analysis."""
+
+    ai_module_dir = PROJECT_DIR / "person2_ai_module"
+    scanner_results = PROJECT_DIR / "data" / "results.json"
+
+    # Step 1: Run Playwright + axe-core scanner.
+    scanner_code = (
+        "import sys; "
+        "from scanner.scanner import scan_website; "
+        "scan_website(sys.argv[1])"
+    )
+
+    try:
+        scanner_process = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                scanner_code,
+                url,
+            ],
+            cwd=str(PROJECT_DIR),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=180,
+        )
+
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Website scanning timed out after 180 seconds.")
+
+    if scanner_process.returncode != 0:
+        raise RuntimeError(
+            "Accessibility scanner failed:\n"
+            + scanner_process.stderr[-4000:]
+        )
+
+    if not scanner_results.exists():
+        raise RuntimeError("Scanner did not generate results.json.")
+
+    # Step 2: Run Gemini analysis on fresh scanner results.
+    ai_script = ai_module_dir / "run_scan_analysis.py"
+
+    try:
+        ai_process = subprocess.run(
+            [
+                sys.executable,
+                str(ai_script),
+            ],
+            cwd=str(ai_module_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+        )
+
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("AI analysis timed out after 600 seconds.")
+
+    if ai_process.returncode != 0:
+        raise RuntimeError(
+            "Gemini analysis pipeline failed:\n"
+            + ai_process.stderr[-4000:]
+        )
+
+    if not AI_RESULTS_FILE.exists():
+        raise RuntimeError("AI analysis JSON was not generated.")
+
+    # Step 3: Load fresh results.
+    with scanner_results.open("r", encoding="utf-8") as file:
+        scan_data = json.load(file)
+
+    with AI_RESULTS_FILE.open("r", encoding="utf-8") as file:
+        ai_data = json.load(file)
+
+    return {
+        "scan": scan_data,
+        "ai": ai_data,
+        "scanner_log": scanner_process.stdout,
+        "ai_log": ai_process.stdout,
+    }
 
 
 if "wd_dark_mode" not in st.session_state:
@@ -248,6 +338,23 @@ def info_card(number: str, title: str, copy: str, tag: str = ""):
         )
 
 
+def load_latest_scan_data():
+    """Load the newest persisted scan so all result pages stay in sync."""
+    if SCANNER_RESULTS_FILE.exists():
+        try:
+            with SCANNER_RESULTS_FILE.open("r", encoding="utf-8") as file:
+                latest_scan = json.load(file)
+            if isinstance(latest_scan, dict):
+                st.session_state.wd_scan_data = latest_scan
+                return latest_scan
+        except (json.JSONDecodeError, OSError) as exc:
+            st.warning(f"Could not read the latest scanner results: {exc}")
+
+    # Use cached session data only when no valid persisted scan is available.
+    cached_scan = st.session_state.get("wd_scan_data")
+    return cached_scan if isinstance(cached_scan, dict) else None
+
+
 if selected_page == "Home":
     left, right = st.columns([1.08, 0.92], gap="large", vertical_alignment="center")
     with left:
@@ -284,14 +391,30 @@ if selected_page == "Home":
                 scan_submit = st.form_submit_button("Analyse website", width="stretch")
             if scan_submit:
                 candidate = normalise_url(url_input)
+
                 if candidate is None:
-                    st.error("Enter a valid public website URL, such as https://example.com.")
+                    st.error("Please enter a valid website URL.")
                 else:
                     st.session_state.wd_url = candidate
 
+                    with st.spinner(
+                        "Scanning website and generating AI accessibility analysis..."
+                    ):
+                        try:
+                            result = run_full_scan(candidate)
 
-                    st.session_state.wd_goto = "Dashboard"
-                    st.rerun()
+                            st.session_state.wd_scan_data = result["scan"]
+                            st.session_state.wd_ai_data = result["ai"]
+                            st.session_state.wd_scan_log = result.get("scanner_log", "")
+                            st.session_state.wd_ai_log = result.get("ai_log", "")
+                            st.session_state.wd_scan_error = None
+
+                            st.session_state.wd_goto = "Dashboard"
+                            st.rerun()
+
+                        except Exception as exc:
+                            st.session_state.wd_scan_error = str(exc)
+                            st.error(f"Website analysis failed: {exc}")
 
     st.html('<div class="wd-rule"></div>')
     metrics = st.columns(3)
@@ -317,37 +440,402 @@ if selected_page == "Home":
 
 
 elif selected_page == "Dashboard":
-    page_heading("OVERVIEW", "Accessibility <span>dashboard.</span>", "A central view of scan health, detected issues and recommended next steps.")
-    if st.session_state.wd_url:
-        st.caption(f"Current website: {st.session_state.wd_url}")
+    page_heading(
+        "OVERVIEW",
+        "Accessibility <span>dashboard.</span>",
+        "A live summary of the latest accessibility scan for your website."
+    )
+
+    # Always prefer the latest saved result, not an older Streamlit session cache.
+    scan_data = load_latest_scan_data()
+
+    if not isinstance(scan_data, dict):
+        st.info(
+            "No scan results are available yet. Go to Home and analyse a website first."
+        )
     else:
-        st.info("No website has been submitted yet. Go to Home to enter a URL. The metrics below are demonstration placeholders.")
-    metric_cols = st.columns(4)
-    for col, label, value, delta in zip(metric_cols, ["Accessibility score", "Total issues", "Critical issues", "Profiles affected"], ["72/100", "15", "3", "4/6"], ["Demo value", "Demo value", "Demo value", "Demo value"]):
-        with col:
-            st.metric(label, value, delta)
-    st.subheader("Issue distribution")
-    chart_cols = st.columns([1.15, 0.85])
-    with chart_cols[0]:
-        st.bar_chart({"Issues": [3, 5, 4, 3]}, x_label="Severity", y_label="Count")
-    with chart_cols[1]:
-        with st.container(border=True):
-            st.markdown("**Recommended next steps**")
-            st.write("1. Review critical issues")
-            st.write("2. Check keyboard navigation")
-            st.write("3. Verify AI-generated fixes")
+        summary = scan_data.get("summary")
+        if not isinstance(summary, dict):
+            summary = {}
 
+        violations = scan_data.get("violations")
+        if not isinstance(violations, list):
+            violations = []
 
+        website_url = (
+            scan_data.get("final_url")
+            or scan_data.get("url")
+            or st.session_state.get("wd_url")
+            or "Website URL not recorded"
+        )
+        st.caption(f"Website analysed: {website_url}")
+
+        scan_timestamp = scan_data.get("timestamp")
+        if scan_timestamp:
+            st.caption(f"Latest scan: {scan_timestamp}")
+
+        def dashboard_count(value, fallback=0):
+            try:
+                return max(0, int(value))
+            except (TypeError, ValueError):
+                return fallback
+
+        total_violations = dashboard_count(
+            summary.get("total_violations"),
+            len(violations)
+        )
+
+        calculated_affected_nodes = sum(
+            dashboard_count(
+                item.get("affected_nodes"),
+                len(item.get("nodes") or [])
+            )
+            for item in violations
+            if isinstance(item, dict)
+        )
+        total_affected_nodes = dashboard_count(
+            summary.get("total_affected_nodes"),
+            calculated_affected_nodes
+        )
+
+        impact_counts = summary.get("impact_counts")
+        if not isinstance(impact_counts, dict):
+            impact_counts = {}
+
+        severity_labels = ["Critical", "Serious", "Moderate", "Minor"]
+        severity_values = []
+
+        for severity in severity_labels:
+            severity_key = severity.lower()
+            fallback_count = sum(
+                1
+                for item in violations
+                if isinstance(item, dict)
+                and str(item.get("impact") or "").lower() == severity_key
+            )
+            severity_values.append(
+                dashboard_count(
+                    impact_counts.get(severity_key),
+                    fallback_count
+                )
+            )
+
+        passes_value = summary.get("passes")
+        incomplete_value = summary.get("incomplete")
+        passes_display = (
+            dashboard_count(passes_value)
+            if passes_value is not None
+            else "—"
+        )
+        incomplete_display = (
+            dashboard_count(incomplete_value)
+            if incomplete_value is not None
+            else "—"
+        )
+
+        # Main metrics are taken directly from the scanner output.
+        st.subheader("Scan overview")
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Total violations", total_violations)
+        metric_cols[1].metric("Affected nodes", total_affected_nodes)
+        metric_cols[2].metric("Passed checks", passes_display)
+        metric_cols[3].metric("Incomplete checks", incomplete_display)
+
+        if scan_data.get("score") is None:
+            st.caption(
+                "Accessibility score: not calculated by this scan. "
+                "WebDoc does not substitute a demo or estimated score."
+            )
+        else:
+            st.caption(f"Scanner score: {scan_data.get('score')}")
+
+        st.divider()
+
+        # Severity breakdown.
+        st.subheader("Issue severity")
+        severity_cols = st.columns(4)
+        for col, label, value in zip(
+            severity_cols,
+            severity_labels,
+            severity_values
+        ):
+            with col:
+                st.metric(label, value)
+
+        st.subheader("Issue distribution")
+        severity_chart_data = {
+            "Severity": severity_labels,
+            "Violations": severity_values
+        }
+        st.bar_chart(
+            severity_chart_data,
+            x="Severity",
+            y="Violations",
+            x_label="Severity",
+            y_label="Number of violations"
+        )
+
+        st.divider()
+
+        # Show the actual rules returned by axe-core.
+        st.subheader("Detected accessibility issues")
+        issue_rows = []
+
+        for item in violations:
+            if not isinstance(item, dict):
+                continue
+
+            nodes = item.get("nodes")
+            if not isinstance(nodes, list):
+                nodes = []
+
+            affected_count = dashboard_count(
+                item.get("affected_nodes"),
+                len(nodes)
+            )
+
+            issue_rows.append({
+                "Issue": item.get("help") or item.get("id") or "Unknown issue",
+                "Rule ID": item.get("id") or "N/A",
+                "Severity": str(item.get("impact") or "Unknown").title(),
+                "Affected nodes": affected_count
+            })
+
+        if issue_rows:
+            st.dataframe(
+                issue_rows,
+                width="stretch",
+                hide_index=True
+            )
+        else:
+            st.info("The scanner did not return any accessibility violations.")
+
+        st.divider()
+        st.subheader("Recommended next steps")
+
+        critical_count = severity_values[0]
+        serious_count = severity_values[1]
+
+        if critical_count or serious_count:
+            st.write(
+                f"1. Review the {critical_count} critical and "
+                f"{serious_count} serious issue(s) first."
+            )
+        else:
+            st.write("1. Review the detected moderate and minor issues.")
+
+        st.write("2. Open WCAG Issues to inspect each rule and affected element.")
+        st.write("3. Review AI Co-Pilot suggestions, then make changes manually.")
+        st.write("4. Run a fresh scan to verify any changes.")
 elif selected_page == "WCAG Issues":
-    page_heading("DIAGNOSIS", "WCAG <span>issues.</span>", "Review detected barriers, their severity and the WCAG criteria they relate to.")
-    demo_issues = [
-        {"Issue": "Button has no accessible name", "WCAG": "4.1.2", "Severity": "Serious", "Affected element": "button.checkout"},
-        {"Issue": "Image is missing alternative text", "WCAG": "1.1.1", "Severity": "Critical", "Affected element": "img.hero-image"},
-        {"Issue": "Text contrast is too low", "WCAG": "1.4.3", "Severity": "Serious", "Affected element": "p.description"},
-        {"Issue": "Form control has no label", "WCAG": "1.3.1", "Severity": "Moderate", "Affected element": "input.email"},
-    ]
-    st.caption("Demonstration data — replace with Person 1's scanner output during integration.")
-    st.dataframe(demo_issues, width="stretch", hide_index=True)
+    page_heading(
+        "DIAGNOSIS",
+        "WCAG <span>issues.</span>",
+        "Review actual accessibility violations detected on your website."
+    )
+
+    # Always prefer the latest saved result, not an older Streamlit session cache.
+    scan_data = load_latest_scan_data()
+
+    if not isinstance(scan_data, dict):
+        st.info(
+            "No scan results are available yet. Go to Home and analyse a website first."
+        )
+    else:
+        summary = scan_data.get("summary")
+        if not isinstance(summary, dict):
+            summary = {}
+
+        violations = scan_data.get("violations")
+        if not isinstance(violations, list):
+            violations = []
+
+        website_url = (
+            scan_data.get("final_url")
+            or scan_data.get("url")
+            or st.session_state.get("wd_url")
+            or "Website URL not recorded"
+        )
+        st.caption(f"Website analysed: {website_url}")
+
+        scan_timestamp = scan_data.get("timestamp")
+        if scan_timestamp:
+            st.caption(f"Latest scan: {scan_timestamp}")
+
+        def wcag_count(value, fallback=0):
+            try:
+                return max(0, int(value))
+            except (TypeError, ValueError):
+                return fallback
+
+        impact_counts = summary.get("impact_counts")
+        if not isinstance(impact_counts, dict):
+            impact_counts = {}
+
+        severity_options = ["Critical", "Serious", "Moderate", "Minor"]
+        severity_counts = {}
+
+        for severity in severity_options:
+            key = severity.lower()
+            fallback_count = sum(
+                1
+                for item in violations
+                if isinstance(item, dict)
+                and str(item.get("impact") or "").lower() == key
+            )
+            severity_counts[severity] = wcag_count(
+                impact_counts.get(key),
+                fallback_count
+            )
+
+        metric_cols = st.columns(4)
+        for col, severity in zip(metric_cols, severity_options):
+            with col:
+                col.metric(severity, severity_counts[severity])
+
+        st.divider()
+
+        if not violations:
+            st.success(
+                "The scanner did not return any accessibility violations for this page."
+            )
+        else:
+            filter_col, search_col = st.columns([1, 2])
+
+            with filter_col:
+                selected_severity = st.selectbox(
+                    "Filter by severity",
+                    ["All"] + severity_options,
+                    key="wcag_severity_filter"
+                )
+
+            with search_col:
+                search_text = st.text_input(
+                    "Search issues",
+                    placeholder="Search issue name or rule ID",
+                    key="wcag_issue_search"
+                ).strip().lower()
+
+            filtered_violations = []
+
+            for issue in violations:
+                if not isinstance(issue, dict):
+                    continue
+
+                issue_severity = str(
+                    issue.get("impact") or "Unknown"
+                ).title()
+
+                if (
+                    selected_severity != "All"
+                    and issue_severity != selected_severity
+                ):
+                    continue
+
+                issue_id = str(issue.get("id") or "")
+                issue_title = str(issue.get("help") or issue_id)
+                searchable_text = f"{issue_title} {issue_id}".lower()
+
+                if search_text and search_text not in searchable_text:
+                    continue
+
+                filtered_violations.append(issue)
+
+            st.caption(
+                f"Showing {len(filtered_violations)} of "
+                f"{len(violations)} detected violations."
+            )
+
+            if not filtered_violations:
+                st.info("No issues match the selected filter.")
+            else:
+                for issue in filtered_violations:
+                    issue_id = issue.get("id") or "unknown-rule"
+                    issue_title = issue.get("help") or issue_id
+                    severity = str(
+                        issue.get("impact") or "Unknown"
+                    ).title()
+                    description = issue.get("description") or (
+                        "No description was supplied by the scanner."
+                    )
+
+                    nodes = issue.get("nodes")
+                    if not isinstance(nodes, list):
+                        nodes = []
+
+                    affected_count = wcag_count(
+                        issue.get("affected_nodes"),
+                        len(nodes)
+                    )
+
+                    with st.container(border=True):
+                        title_col, severity_col = st.columns([3, 1])
+
+                        with title_col:
+                            st.markdown(f"### {issue_title}")
+                            st.caption(f"Rule ID: `{issue_id}`")
+
+                        with severity_col:
+                            st.metric("Severity", severity)
+
+                        st.write(description)
+                        st.write(f"**Affected elements:** {affected_count}")
+
+                        # Display WCAG tags only when the scanner actually supplies them.
+                        wcag_tags = issue.get("tags")
+                        if isinstance(wcag_tags, str):
+                            wcag_tags = [wcag_tags]
+                        elif not isinstance(wcag_tags, list):
+                            wcag_tags = []
+
+                        if wcag_tags:
+                            st.caption(
+                                "Scanner tags: "
+                                + ", ".join(str(tag) for tag in wcag_tags)
+                            )
+                        else:
+                            st.caption(
+                                "WCAG success criterion was not included "
+                                "in this scanner result; no criterion has been inferred."
+                            )
+
+                        help_url = issue.get("help_url")
+                        if help_url:
+                            st.markdown(
+                                f"[Open rule guidance]({help_url})"
+                            )
+
+                        if nodes:
+                            with st.expander(
+                                f"Inspect affected elements ({len(nodes)})"
+                            ):
+                                for index, node in enumerate(nodes, start=1):
+                                    if not isinstance(node, dict):
+                                        continue
+
+                                    st.markdown(f"**Affected element {index}**")
+
+                                    targets = node.get("target") or []
+                                    if isinstance(targets, str):
+                                        targets = [targets]
+
+                                    if targets:
+                                        st.caption(
+                                            "CSS target: "
+                                            + ", ".join(str(target) for target in targets)
+                                        )
+
+                                    html_fragment = node.get("html")
+                                    if html_fragment:
+                                        st.code(
+                                            str(html_fragment)[:3000],
+                                            language="html"
+                                        )
+
+                                    failure_summary = node.get("failure_summary")
+                                    if failure_summary:
+                                        st.markdown("**Scanner failure details**")
+                                        st.text(str(failure_summary)[:3000])
 
 
 elif selected_page == "Profiles":
