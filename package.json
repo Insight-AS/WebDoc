@@ -1,0 +1,24 @@
+{
+  "name": "webdoc",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Insight-AS/WebDoc.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Insight-AS/WebDoc/issues"
+  },
+  "homepage": "https://github.com/Insight-AS/WebDoc#readme",
+  "dependencies": {
+    "axe-core": "^4.14.0"
+  }
+}

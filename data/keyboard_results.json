@@ -1,0 +1,20 @@
+{
+    "url": "https://example.com",
+    "timestamp": "2026-11-05T15:07:22.305230",
+    "total_focused_elements": 1,
+    "focused_elements": [
+        {
+            "tag": "A",
+            "id": "",
+            "text": "Learn more",
+            "aria_label": null,
+            "href": "https://iana.org/help/example-domains",
+            "focus_visible": true
+        }
+    ],
+    "reverse_navigation": {
+        "tag": "A",
+        "text": "Learn more",
+        "focus_visible": true
+    }
+}
