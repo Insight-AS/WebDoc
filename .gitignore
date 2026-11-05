@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Python environments
 .venv/
 venv/
@@ -20,9 +19,3 @@ __pycache__/
 
 # Editor settings
 .vscode/
-=======
-venv/
-node_modules/
-__pycache__/
-*.pyc
->>>>>>> origin/main
