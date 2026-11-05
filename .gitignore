@@ -1,6 +1,9 @@
-# Python virtual environment
+# Python environments
 .venv/
 venv/
+
+# Node dependencies
+node_modules/
 
 # Python cache
 __pycache__/
