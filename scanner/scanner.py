@@ -71,6 +71,7 @@ def scan_website(url):
                 "description": issue["description"],
                 "help": issue["help"],
                 "help_url": issue["helpUrl"],
+                "tags": issue.get("tags", []),
                 "affected_nodes": len(nodes),
                 "nodes": nodes
             })

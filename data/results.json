@@ -3,7 +3,7 @@
     "url": "https://example.com",
     "final_url": "https://example.com/",
     "page_title": "Example Domain",
-    "timestamp": "2026-11-05T15:07:18.769996",
+    "timestamp": "2026-11-05T21:52:11.338522",
     "scan_status": "completed",
     "score": null,
     "summary": {
@@ -25,6 +25,10 @@
             "description": "Ensure the document has a main landmark",
             "help": "Document should have one main landmark",
             "help_url": "https://dequeuniversity.com/rules/axe/4.14/landmark-one-main?application=axeAPI",
+            "tags": [
+                "cat.semantics",
+                "best-practice"
+            ],
             "affected_nodes": 1,
             "nodes": [
                 {
@@ -42,6 +46,10 @@
             "description": "Ensure that the page, or at least one of its frames contains a level-one heading",
             "help": "Page should contain a level-one heading",
             "help_url": "https://dequeuniversity.com/rules/axe/4.14/page-has-heading-one?application=axeAPI",
+            "tags": [
+                "cat.semantics",
+                "best-practice"
+            ],
             "affected_nodes": 1,
             "nodes": [
                 {
@@ -59,6 +67,12 @@
             "description": "Ensure all page content is contained by landmarks",
             "help": "All page content should be contained by landmarks",
             "help_url": "https://dequeuniversity.com/rules/axe/4.14/region?application=axeAPI",
+            "tags": [
+                "cat.keyboard",
+                "best-practice",
+                "RGAAv4",
+                "RGAA-9.2.1"
+            ],
             "affected_nodes": 7,
             "nodes": [
                 {
