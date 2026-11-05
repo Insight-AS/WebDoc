@@ -1,0 +1,10 @@
+{
+  "id": "button-name",
+  "description": "Buttons must have discernible text",
+  "help": "Ensure buttons have discernible text",
+  "impact": "serious",
+  "wcag": ["wcag412"],
+  "html": "<button><svg aria-hidden='true'></svg></button>",
+  "selector": "button.checkout",
+  "purpose": "Open the shopping cart"
+}
