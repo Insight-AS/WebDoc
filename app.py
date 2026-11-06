@@ -1938,7 +1938,7 @@ img, video, iframe {{ max-width: 100%; }}
                 'border-radius:10px;background:white" '
                 f'srcdoc="{srcdoc}"></iframe>'
             )
-            st.components.v1.html(iframe, height=275, scrolling=False)
+            st.iframe(iframe, height=275)
 
         st.subheader("Isolated visual preview")
         before_preview, after_preview = st.columns(2)
