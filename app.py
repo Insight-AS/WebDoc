@@ -997,12 +997,478 @@ elif selected_page == "Profiles":
         )
 
 elif selected_page == "Heatmap":
-    page_heading("VISUAL DIAGNOSIS", "Accessibility <span>heatmap.</span>", "Locate detected issues visually and inspect the affected page elements.")
-    st.info("The visual overlay will become interactive when Person 1's scanner supplies a screenshot and element selectors. This screen currently shows the integration placeholder.")
-    with st.container(border=True):
-        st.markdown("**Detected element markers — sample data**")
-        for label, selector, severity in [("Missing image alternative text", "img.hero-image", "Critical"), ("Button accessible name", "button.checkout", "Serious"), ("Low text contrast", "p.description", "Moderate")]:
-            st.write(f"{severity}  ·  `{selector}`  ·  {label}")
+
+    page_heading(
+        "VISUAL DIAGNOSIS",
+        "Accessibility <span>heatmap.</span>",
+        "Locate detected issues visually and inspect the affected page elements."
+    )
+
+    scan_data = load_latest_scan_data()
+
+    if not isinstance(scan_data, dict):
+
+        st.info("Run a website scan first to generate a screenshot and element coordinates.")
+
+    else:
+
+        violations = scan_data.get("violations", [])
+
+        if not isinstance(violations, list):
+            violations = []
+
+        screenshot_value = (
+            scan_data.get("screenshot")
+            or "data/website_screenshot.png"
+        )
+
+        screenshot_path = Path(screenshot_value)
+
+        if not screenshot_path.is_absolute():
+            screenshot_path = PROJECT_DIR / screenshot_path
+
+        if not screenshot_path.exists():
+
+            st.error(f"Website screenshot not found: {screenshot_path}")
+
+        else:
+
+            try:
+                from PIL import Image, ImageDraw
+
+                with Image.open(screenshot_path) as source_image:
+                    screenshot = source_image.convert("RGBA")
+
+            except Exception as exc:
+
+                st.error(f"Could not open website screenshot: {exc}")
+                screenshot = None
+
+            if screenshot is not None:
+
+                metadata = scan_data.get("screenshot_metadata") or {}
+
+                try:
+                    css_width = float(
+                        metadata.get("css_width") or screenshot.width
+                    )
+                    css_height = float(
+                        metadata.get("css_height") or screenshot.height
+                    )
+
+                except (TypeError, ValueError):
+
+                    css_width = screenshot.width
+                    css_height = screenshot.height
+
+                scale_x = (
+                    screenshot.width / css_width
+                    if css_width > 0 else 1.0
+                )
+
+                scale_y = (
+                    screenshot.height / css_height
+                    if css_height > 0 else 1.0
+                )
+
+                severity_colours = {
+                    "critical": (210, 45, 58, 255),
+                    "serious": (238, 128, 35, 255),
+                    "moderate": (218, 174, 45, 255),
+                    "minor": (48, 125, 190, 255)
+                }
+
+                severity_col, rule_col = st.columns(2)
+
+                with severity_col:
+
+                    severity_filter = st.selectbox(
+                        "Filter by severity",
+                        [
+                            "All",
+                            "Critical",
+                            "Serious",
+                            "Moderate",
+                            "Minor"
+                        ],
+                        key="heatmap_severity_filter"
+                    )
+
+                available_rules = [
+                    str(issue.get("id"))
+                    for issue in violations
+                    if isinstance(issue, dict) and issue.get("id")
+                ]
+
+                with rule_col:
+
+                    rule_filter = st.selectbox(
+                        "Filter by rule",
+                        ["All rules"] + available_rules,
+                        key="heatmap_rule_filter"
+                    )
+
+                markers = []
+
+                for issue in violations:
+
+                    if not isinstance(issue, dict):
+                        continue
+
+                    issue_id = str(issue.get("id") or "unknown")
+
+                    severity = str(
+                        issue.get("impact") or "minor"
+                    ).lower()
+
+                    if (
+                        severity_filter != "All"
+                        and severity != severity_filter.lower()
+                    ):
+                        continue
+
+                    if (
+                        rule_filter != "All rules"
+                        and issue_id != rule_filter
+                    ):
+                        continue
+
+                    nodes = issue.get("nodes") or []
+
+                    if not isinstance(nodes, list):
+                        continue
+
+                    for node in nodes:
+
+                        if not isinstance(node, dict):
+                            continue
+
+                        box = node.get("bounding_box")
+
+                        if not isinstance(box, dict):
+                            continue
+
+                        try:
+                            x = float(box["x"])
+                            y = float(box["y"])
+                            width = float(box["width"])
+                            height = float(box["height"])
+
+                        except (KeyError, TypeError, ValueError):
+                            continue
+
+                        if width <= 0 or height <= 0:
+                            continue
+
+                        targets = node.get("target") or []
+
+                        if isinstance(targets, str):
+                            targets = [targets]
+
+                        markers.append({
+                            "issue_id": issue_id,
+                            "title": issue.get("help") or issue_id,
+                            "severity": severity,
+                            "description": issue.get("description") or "",
+                            "html": node.get("html") or "",
+                            "failure": node.get("failure_summary") or "",
+                            "selector": " → ".join(
+                                str(target) for target in targets
+                            ),
+                            "box": (x, y, width, height)
+                        })
+
+                all_nodes = [
+                    node
+                    for issue in violations
+                    if isinstance(issue, dict)
+                    for node in (issue.get("nodes") or [])
+                    if isinstance(node, dict)
+                ]
+
+                located_count = sum(
+                    1
+                    for node in all_nodes
+                    if isinstance(node.get("bounding_box"), dict)
+                )
+
+                st.caption(
+                    f"Website: {scan_data.get('final_url') or scan_data.get('url') or 'URL not recorded'}"
+                )
+
+                metric_cols = st.columns(3)
+
+                metric_cols[0].metric(
+                    "Detected rules",
+                    len(violations)
+                )
+
+                metric_cols[1].metric(
+                    "Located elements",
+                    located_count
+                )
+
+                metric_cols[2].metric(
+                    "Unlocated elements",
+                    max(0, len(all_nodes) - located_count)
+                )
+
+                if not markers:
+
+                    st.warning(
+                        "No elements match these filters or have captured coordinates. "
+                        "Run a fresh scan with the updated scanner."
+                    )
+
+                    st.image(
+                        screenshot.convert("RGB"),
+                        caption="Website screenshot",
+                        width="stretch"
+                    )
+
+                else:
+
+                    selected_index = st.selectbox(
+                        "Choose a numbered finding",
+                        range(len(markers)),
+                        format_func=lambda index: (
+                            f"#{index + 1} | "
+                            f"{markers[index]['severity'].title()} | "
+                            f"{markers[index]['issue_id']} | "
+                            f"{markers[index]['selector'][:55]}"
+                        ),
+                        key="heatmap_selected_index"
+                    )
+
+                    overlay = screenshot.copy()
+
+                    marker_layer = Image.new(
+                        "RGBA",
+                        overlay.size,
+                        (0, 0, 0, 0)
+                    )
+
+                    draw = ImageDraw.Draw(marker_layer)
+
+                    for index, marker in enumerate(markers):
+
+                        x, y, width, height = marker["box"]
+
+                        left = max(
+                            0,
+                            min(
+                                int(x * scale_x),
+                                overlay.width - 1
+                            )
+                        )
+
+                        top = max(
+                            0,
+                            min(
+                                int(y * scale_y),
+                                overlay.height - 1
+                            )
+                        )
+
+                        right = max(
+                            left + 1,
+                            min(
+                                int((x + width) * scale_x),
+                                overlay.width - 1
+                            )
+                        )
+
+                        bottom = max(
+                            top + 1,
+                            min(
+                                int((y + height) * scale_y),
+                                overlay.height - 1
+                            )
+                        )
+
+                        colour = severity_colours.get(
+                            marker["severity"],
+                            (48, 125, 190, 255)
+                        )
+
+                        line_width = (
+                            7 if index == selected_index else 3
+                        )
+
+                        if index == selected_index:
+                            colour = (35, 175, 110, 255)
+
+                        draw.rectangle(
+                            (left, top, right, bottom),
+                            outline=colour,
+                            width=line_width
+                        )
+
+                        radius = 13
+
+                        dot_right = min(
+                            left + radius * 2,
+                            overlay.width - 1
+                        )
+
+                        dot_bottom = min(
+                            top + radius * 2,
+                            overlay.height - 1
+                        )
+
+                        draw.ellipse(
+                            (
+                                left,
+                                top,
+                                dot_right,
+                                dot_bottom
+                            ),
+                            fill=colour,
+                            outline=(255, 255, 255, 255),
+                            width=2
+                        )
+
+                        draw.text(
+                            (left + 7, top + 5),
+                            str(index + 1),
+                            fill=(255, 255, 255, 255)
+                        )
+
+                    overlay = Image.alpha_composite(
+                        overlay,
+                        marker_layer
+                    ).convert("RGB")
+
+                    st.subheader("Website issue map")
+
+                    st.image(
+                        overlay,
+                        caption=(
+                            "Red: Critical | Orange: Serious | "
+                            "Gold: Moderate | Blue: Minor | "
+                            "Green: Selected"
+                        ),
+                        width="stretch"
+                    )
+
+                    selected = markers[selected_index]
+
+                    st.divider()
+
+                    st.subheader(selected["title"])
+
+                    detail_cols = st.columns(2)
+
+                    detail_cols[0].metric(
+                        "Severity",
+                        selected["severity"].title()
+                    )
+
+                    detail_cols[1].metric(
+                        "Rule ID",
+                        selected["issue_id"]
+                    )
+
+                    st.caption(
+                        "CSS selector: "
+                        + (selected["selector"] or "Not supplied")
+                    )
+
+                    if selected["description"]:
+                        st.write(selected["description"])
+
+                    if selected["html"]:
+
+                        with st.expander("Affected HTML"):
+
+                            st.code(
+                                selected["html"],
+                                language="html"
+                            )
+
+                    if selected["failure"]:
+
+                        with st.expander("Scanner failure details"):
+
+                            st.text(selected["failure"])
+
+                    # Connect the selected issue to Gemini results.
+
+                    if AI_RESULTS_FILE.exists():
+
+                        try:
+
+                            with AI_RESULTS_FILE.open(
+                                "r",
+                                encoding="utf-8"
+                            ) as file:
+
+                                ai_data = json.load(file)
+
+                            ai_results = (
+                                ai_data.get("results", [])
+                                if isinstance(ai_data, dict)
+                                else []
+                            )
+
+                            ai_match = next(
+                                (
+                                    item
+                                    for item in ai_results
+                                    if isinstance(item, dict)
+                                    and item.get("issue_id") == selected["issue_id"]
+                                    and isinstance(item.get("analysis"), dict)
+                                ),
+                                None
+                            )
+
+                            if ai_match:
+
+                                analysis = ai_match["analysis"]
+
+                                with st.container(border=True):
+
+                                    st.markdown(
+                                        "**Gemini explanation and remediation**"
+                                    )
+
+                                    st.write(
+                                        analysis.get("explanation")
+                                        or "No explanation available."
+                                    )
+
+                                    if analysis.get("recommended_fix"):
+
+                                        st.markdown("**Recommended fix**")
+
+                                        st.write(
+                                            analysis["recommended_fix"]
+                                        )
+
+                                    if analysis.get("wcag_reference"):
+
+                                        st.caption(
+                                            "WCAG reference: "
+                                            + str(analysis["wcag_reference"])
+                                        )
+
+                            else:
+
+                                st.info(
+                                    "No Gemini explanation is saved for this rule yet."
+                                )
+
+                        except (OSError, json.JSONDecodeError) as exc:
+
+                            st.warning(
+                                f"Could not read Gemini analysis: {exc}"
+                            )
+
+                st.caption(
+                    "Markers use captured DOM coordinates. Some nodes inside "
+                    "inaccessible frames or unresolved shadow targets may not "
+                    "have a position. Re-scan after website changes."
+                )
 
 
 elif selected_page == "AI Co-Pilot":
@@ -1381,22 +1847,89 @@ elif selected_page == "Preview":
 
         from html import escape as html_escape
 
-        def render_isolated_fragment(fragment, title):
-            """Render untrusted HTML in a nested, script-disabled iframe."""
+        def render_isolated_fragment(fragment, title, page_context=None):
+            """Render an untrusted fragment in a sandboxed iframe.
+
+            For document-root findings such as html-has-lang, an <html> tag
+            alone has no visible content. Reconstruct a visual body preview
+            from the scanner's captured page context while applying the
+            document language represented by the selected fragment.
+            """
+            fragment = str(fragment or "")
+
+            root_match = re.match(
+                r"\s*<html\b([^>]*)>",
+                fragment,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+
+            if root_match:
+                attributes = root_match.group(1) or ""
+                lang_match = re.search(
+                    r"\blang\s*=\s*([\"'])(.*?)\1",
+                    attributes,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+                language = lang_match.group(2).strip() if lang_match else ""
+                safe_language = html_escape(language, quote=True)
+                lang_attribute = (
+                    f' lang="{safe_language}"' if safe_language else ""
+                )
+                language_label = safe_language or "Not set"
+
+                body_parts = []
+                if isinstance(page_context, dict):
+                    children = page_context.get("body_children") or []
+                    if isinstance(children, list):
+                        for child in children:
+                            if isinstance(child, dict) and child.get("html"):
+                                body_parts.append(str(child["html"]))
+
+                body_content = "\n".join(body_parts)
+                if not body_content:
+                    body_content = (
+                        '<div class="empty-note">'
+                        'The scanner did not capture visible page content.'
+                        '</div>'
+                    )
+
+                page_title = ""
+                if isinstance(page_context, dict):
+                    page_title = str(page_context.get("title") or "")
+                safe_title = html_escape(page_title, quote=False)
+
+                rendered_content = (
+                    '<div class="metadata-note">'
+                    '<strong>Document language:</strong> '
+                    + language_label
+                    + '<br><span>This is a document-level metadata change. '
+                    'It does not change the visible page design.</span></div>'
+                    + body_content
+                )
+            else:
+                lang_attribute = ' lang="en"'
+                safe_title = "Isolated HTML fragment"
+                rendered_content = fragment
+
             document = f"""<!doctype html>
-<html lang="en">
+<html{lang_attribute}>
 <head>
 <meta charset="utf-8">
+<title>{safe_title}</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body {{ font-family: Arial, sans-serif; color: #18334b; background: #ffffff; padding: 16px; margin: 0; overflow-wrap: anywhere; }}
 a {{ pointer-events: none; }}
 img, video, iframe {{ max-width: 100%; }}
+.metadata-note {{ padding: 10px 12px; margin-bottom: 14px; border: 1px solid #c9d9e8; border-radius: 8px; background: #eef6fc; color: #18334b; font-size: 13px; line-height: 1.5; }}
+.metadata-note span {{ color: #526b80; }}
+.empty-note {{ padding: 18px; border: 1px dashed #9bb0c2; border-radius: 8px; color: #526b80; }}
 </style>
 </head>
-<body>{fragment}</body>
+<body>{rendered_content}</body>
 </html>"""
+
             srcdoc = html_escape(document, quote=True)
             iframe = (
                 f'<iframe title="{html_escape(title, quote=True)}" '
@@ -1413,14 +1946,14 @@ img, video, iframe {{ max-width: 100%; }}
         with before_preview:
             st.markdown("**Before**")
             if original_code:
-                render_isolated_fragment(original_code, "Original HTML fragment preview")
+                render_isolated_fragment(original_code, "Original HTML fragment preview", (scan_data or {}).get("page_context"))
             else:
                 st.info("Original fragment preview unavailable.")
 
         with after_preview:
             st.markdown("**After**")
             if validation.get("valid") is True:
-                render_isolated_fragment(corrected_code, "Corrected HTML fragment preview")
+                render_isolated_fragment(corrected_code, "Corrected HTML fragment preview", (scan_data or {}).get("page_context"))
             else:
                 st.info("Corrected preview is disabled until static validation passes.")
 

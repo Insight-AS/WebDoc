@@ -5,12 +5,7 @@ import os
 
 
 def capture_page_context(page):
-    """
-    Capture a limited structural snapshot of the page.
-
-    Website content is untrusted input. This snapshot is provided
-    to Gemini only as context, never as executable instructions.
-    """
+    """Capture a limited structural snapshot for AI context."""
 
     return page.evaluate("""
         () => {
@@ -85,6 +80,94 @@ def capture_page_context(page):
     """)
 
 
+def capture_element_bounds(page, axe_target):
+    """Capture affected element coordinates in document CSS pixels."""
+
+    try:
+        return page.evaluate("""
+            (target) => {
+                const path = Array.isArray(target) ? target : [target];
+
+                let scope = document;
+                let element = null;
+
+                for (const segment of path) {
+
+                    const candidates = Array.isArray(segment)
+                        ? segment : [segment];
+
+                    let match = null;
+
+                    for (const selector of candidates) {
+
+                        if (
+                            typeof selector !== "string" ||
+                            !selector.trim()
+                        ) {
+                            continue;
+                        }
+
+                        try {
+                            match = scope.querySelector(selector);
+                        } catch (_) {
+                            match = null;
+                        }
+
+                        if (match) break;
+                    }
+
+                    if (!match) return null;
+
+                    element = match;
+                    scope = element.shadowRoot || element;
+                }
+
+                if (!element) return null;
+
+                const rect = element.getBoundingClientRect();
+
+                const x = rect.left + window.scrollX;
+                const y = rect.top + window.scrollY;
+
+                return {
+                    x: Number(x.toFixed(2)),
+                    y: Number(y.toFixed(2)),
+                    width: Number(rect.width.toFixed(2)),
+                    height: Number(rect.height.toFixed(2)),
+                    tag: element.tagName.toLowerCase(),
+                    captured: true
+                };
+            }
+        """, axe_target)
+
+    except Exception:
+        return None
+
+
+def capture_screenshot_metadata(page):
+    """Capture dimensions for screenshot overlay scaling."""
+
+    try:
+        return page.evaluate("""
+            () => ({
+                css_width: Math.max(
+                    document.documentElement.scrollWidth,
+                    document.body ? document.body.scrollWidth : 0
+                ),
+                css_height: Math.max(
+                    document.documentElement.scrollHeight,
+                    document.body ? document.body.scrollHeight : 0
+                ),
+                viewport_width: window.innerWidth,
+                viewport_height: window.innerHeight,
+                device_pixel_ratio: window.devicePixelRatio || 1
+            })
+        """)
+
+    except Exception:
+        return {}
+
+
 def scan_website(url):
 
     with sync_playwright() as p:
@@ -95,6 +178,7 @@ def scan_website(url):
         )
 
         try:
+
             page = browser.new_page()
 
             page.goto(
@@ -106,7 +190,7 @@ def scan_website(url):
             title = page.title()
             final_url = page.url
 
-            # Capture page structure for context-aware AI analysis.
+            # Capture page structure.
             page_context = capture_page_context(page)
 
             # Inject axe-core.
@@ -135,10 +219,24 @@ def scan_website(url):
 
                 for node in issue["nodes"]:
 
+                    target = node.get("target") or []
+
+                    # Capture actual screen position.
+                    bounding_box = capture_element_bounds(
+                        page,
+                        target
+                    )
+
                     nodes.append({
-                        "html": node["html"],
-                        "target": node["target"],
-                        "failure_summary": node["failureSummary"]
+                        "html": node.get("html", ""),
+                        "target": target,
+                        "failure_summary": node.get("failureSummary"),
+                        "bounding_box": bounding_box,
+                        "coordinate_status": (
+                            "captured"
+                            if bounding_box
+                            else "not_found"
+                        )
                     })
 
                 impact = issue["impact"] or "minor"
@@ -158,6 +256,9 @@ def scan_website(url):
 
             os.makedirs("data", exist_ok=True)
 
+            screenshot_metadata = capture_screenshot_metadata(page)
+
+            # Capture full-page screenshot.
             page.screenshot(
                 path="data/website_screenshot.png",
                 full_page=True
@@ -183,17 +284,42 @@ def scan_website(url):
                 "violations": violations,
                 "page_context": page_context,
                 "profiles": {},
-                "screenshot": "data/website_screenshot.png"
+
+                "screenshot": "data/website_screenshot.png",
+                "screenshot_metadata": screenshot_metadata
             }
 
-            with open("data/results.json", "w", encoding="utf-8") as file:
-                json.dump(result, file, indent=4, ensure_ascii=False)
+            with open(
+                "data/results.json",
+                "w",
+                encoding="utf-8"
+            ) as file:
+
+                json.dump(
+                    result,
+                    file,
+                    indent=4,
+                    ensure_ascii=False
+                )
+
+            located_nodes = sum(
+                1
+                for issue in violations
+                for item in issue.get("nodes", [])
+                if item.get("bounding_box")
+            )
 
             print("\nAccessibility Scan Completed!")
             print("Website:", final_url)
             print("Title:", title)
             print("Total Violations:", len(violations))
             print("Affected Nodes:", total_affected_nodes)
+
+            print(
+                "Nodes with heatmap coordinates:",
+                located_nodes
+            )
+
             print("Page context captured:", bool(page_context))
             print("Passed Rules:", len(axe_results["passes"]))
             print("Incomplete Rules:", len(axe_results["incomplete"]))
@@ -208,5 +334,6 @@ if __name__ == "__main__":
 
     if website_url.startswith(("http://", "https://")):
         scan_website(website_url)
+
     else:
         print("Please enter a valid HTTP/HTTPS website URL.")
