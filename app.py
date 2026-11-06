@@ -338,6 +338,436 @@ def info_card(number: str, title: str, copy: str, tag: str = ""):
         )
 
 
+
+def read_optional_json(path):
+    """Read an optional JSON report without interrupting the dashboard."""
+    if not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            value = json.load(file)
+        return value if isinstance(value, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _report_plain(value, limit=1800):
+    """Convert arbitrary JSON values to readable, bounded report text."""
+    if value is None:
+        return "Not supplied"
+    if isinstance(value, (dict, list, tuple)):
+        value = json.dumps(value, ensure_ascii=False, indent=2)
+    text_value = str(value).strip()
+    if not text_value:
+        return "Not supplied"
+    if len(text_value) > limit:
+        text_value = text_value[:limit].rstrip() + " … [truncated]"
+    return text_value
+
+
+def build_full_report_pdf(scan_data, ai_data, journey_data, keyboard_data):
+    """Build a downloadable PDF from the latest saved WebDoc audit outputs."""
+    from io import BytesIO
+    from xml.sax.saxutils import escape
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak,
+        KeepTogether, Image as ReportImage,
+    )
+
+    scan_data = scan_data if isinstance(scan_data, dict) else {}
+    ai_data = ai_data if isinstance(ai_data, dict) else {}
+    journey_data = journey_data if isinstance(journey_data, dict) else {}
+    keyboard_data = keyboard_data if isinstance(keyboard_data, dict) else {}
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=17 * mm,
+        leftMargin=17 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+        title="WebDoc Accessibility Audit Report",
+        author="WebDoc - AI Website Accessibility Doctor",
+    )
+
+    navy = colors.HexColor("#173F60")
+    coral = colors.HexColor("#E7776D")
+    pale = colors.HexColor("#EEF4F8")
+    muted = colors.HexColor("#5F7182")
+    green = colors.HexColor("#217A58")
+    orange = colors.HexColor("#B66A18")
+    red = colors.HexColor("#B83D48")
+
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(
+        name="ReportTitle", parent=styles["Title"], fontName="Helvetica-Bold",
+        fontSize=25, leading=30, textColor=navy, alignment=TA_LEFT,
+        spaceAfter=7,
+    ))
+    styles.add(ParagraphStyle(
+        name="ReportSubtitle", parent=styles["Normal"], fontSize=10,
+        leading=15, textColor=muted, spaceAfter=10,
+    ))
+    styles.add(ParagraphStyle(
+        name="SectionHeading", parent=styles["Heading2"], fontName="Helvetica-Bold",
+        fontSize=14, leading=18, textColor=navy, spaceBefore=12, spaceAfter=7,
+    ))
+    styles.add(ParagraphStyle(
+        name="SmallBody", parent=styles["BodyText"], fontSize=8.5,
+        leading=12, textColor=colors.HexColor("#263746"), spaceAfter=4,
+    ))
+    styles.add(ParagraphStyle(
+        name="TinyBody", parent=styles["BodyText"], fontSize=7.3,
+        leading=9.5, textColor=muted,
+    ))
+    styles.add(ParagraphStyle(
+        name="CodeBody", parent=styles["Code"], fontName="Courier",
+        fontSize=6.6, leading=8.2, textColor=colors.HexColor("#293848"),
+        backColor=pale, borderPadding=5, spaceBefore=3, spaceAfter=7,
+    ))
+    styles.add(ParagraphStyle(
+        name="WhiteLabel", parent=styles["Normal"], fontSize=8,
+        leading=10, textColor=colors.white,
+    ))
+
+    def para(value, style="SmallBody", limit=1800):
+        raw = _report_plain(value, limit=limit)
+        safe = escape(raw).replace("\n", "<br/>")
+        return Paragraph(safe, styles[style])
+
+    def make_table(rows, widths=None, header=True):
+        converted = []
+        for row_index, row in enumerate(rows):
+            converted.append([
+                cell if isinstance(cell, (Paragraph,)) else para(cell, "TinyBody", 500)
+                for cell in row
+            ])
+        table = Table(converted, colWidths=widths, repeatRows=1 if header else 0, hAlign="LEFT")
+        commands = [
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D8E2EA")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]
+        if header:
+            commands.extend([
+                ("BACKGROUND", (0, 0), (-1, 0), navy),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ])
+            # Use explicit white header paragraphs for reliable contrast.
+            for col_index, cell in enumerate(rows[0]):
+                converted[0][col_index] = Paragraph(escape(str(cell)), styles["WhiteLabel"])
+            table = Table(converted, colWidths=widths, repeatRows=1, hAlign="LEFT")
+        else:
+            commands.append(("BACKGROUND", (0, 0), (-1, -1), pale))
+        table.setStyle(TableStyle(commands))
+        return table
+
+    violations = scan_data.get("violations", [])
+    if not isinstance(violations, list):
+        violations = []
+    summary = scan_data.get("summary", {})
+    if not isinstance(summary, dict):
+        summary = {}
+    impacts = summary.get("impact_counts", {})
+    if not isinstance(impacts, dict):
+        impacts = {}
+
+    ai_results = ai_data.get("results", [])
+    if not isinstance(ai_results, list):
+        ai_results = []
+    ai_lookup = {
+        str(item.get("issue_id")): item
+        for item in ai_results
+        if isinstance(item, dict) and item.get("issue_id")
+    }
+    successful_ai = sum(
+        1 for item in ai_results
+        if isinstance(item, dict) and isinstance(item.get("analysis"), dict)
+        and item.get("status") != "failed"
+    )
+    failed_ai = sum(
+        1 for item in ai_results
+        if isinstance(item, dict) and (item.get("status") == "failed" or item.get("error"))
+    )
+
+    journey_results = journey_data.get("results", [])
+    if not isinstance(journey_results, list):
+        journey_results = []
+    links = [item for item in journey_results if isinstance(item, dict) and item.get("step") == "Check navigation link"]
+    focus_items = keyboard_data.get("focused_elements", [])
+    if not isinstance(focus_items, list):
+        focus_items = []
+
+    website = (
+        scan_data.get("final_url") or scan_data.get("url")
+        or journey_data.get("url") or keyboard_data.get("url") or "Not recorded"
+    )
+    generated_at = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    story = []
+    story.append(Paragraph("WEBDOC", ParagraphStyle(
+        "Brand", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=10, textColor=coral, leading=13, spaceAfter=8,
+    )))
+    story.append(Paragraph("Accessibility Audit Report", styles["ReportTitle"]))
+    story.append(Paragraph(
+        "Automated website accessibility findings, AI remediation guidance, "
+        "visual scan data, and browser-based keyboard checks.",
+        styles["ReportSubtitle"],
+    ))
+    story.append(para(f"Website: {website}", limit=1000))
+    story.append(para(f"Report generated: {generated_at}"))
+    story.append(para(f"Scan timestamp: {scan_data.get('timestamp', 'Not available')}"))
+    story.append(Spacer(1, 8))
+
+    total_violations = summary.get("total_violations", len(violations))
+    affected_nodes = summary.get("total_affected_nodes", sum(
+        len(item.get("nodes", [])) for item in violations if isinstance(item, dict)
+    ))
+    overview_rows = [
+        ["Metric", "Result", "Metric", "Result"],
+        ["Accessibility violations", total_violations, "Affected nodes", affected_nodes],
+        ["Passed axe-core rules", summary.get("passes", "Not supplied"), "Incomplete rules", summary.get("incomplete", "Not supplied")],
+        ["Gemini analyses succeeded", successful_ai, "Gemini analyses failed", failed_ai],
+        ["Navigation links inspected", len(links), "Keyboard focus stops", len(focus_items)],
+    ]
+    story.append(Paragraph("Executive summary", styles["SectionHeading"]))
+    story.append(make_table(overview_rows, [43*mm, 25*mm, 43*mm, 25*mm]))
+
+    story.append(Paragraph("Severity breakdown", styles["SectionHeading"]))
+    severity_rows = [["Critical", "Serious", "Moderate", "Minor"]]
+    severity_rows.append([impacts.get("critical", 0), impacts.get("serious", 0), impacts.get("moderate", 0), impacts.get("minor", 0)])
+    story.append(make_table(severity_rows, [34*mm, 34*mm, 34*mm, 34*mm]))
+
+    # Include the actual viewport screenshot captured by the scanner, when available.
+    screenshot_path = PROJECT_DIR / "data" / "website_screenshot.png"
+    if screenshot_path.exists():
+        try:
+            from PIL import Image as PILImage
+            with PILImage.open(screenshot_path) as screenshot_file:
+                screenshot_width, screenshot_height = screenshot_file.size
+            max_width = 174 * mm
+            max_height = 205 * mm
+            image_scale = min(
+                max_width / max(1, screenshot_width),
+                max_height / max(1, screenshot_height),
+            )
+            story.append(Paragraph("Scanned page screenshot", styles["SectionHeading"]))
+            story.append(para(
+                "Viewport capture saved by the Playwright scanner. The image is included as visual context; it is not a full-page capture.",
+                limit=300,
+            ))
+            story.append(ReportImage(
+                str(screenshot_path),
+                width=screenshot_width * image_scale,
+                height=screenshot_height * image_scale,
+            ))
+        except Exception:
+            story.append(para("The scanner screenshot was present but could not be embedded in this PDF."))
+
+    story.append(Paragraph("Accessibility findings and AI guidance", styles["SectionHeading"]))
+    if not violations:
+        story.append(para("No accessibility violations were recorded in the available scan file."))
+    for index, issue in enumerate(violations, start=1):
+        if not isinstance(issue, dict):
+            continue
+        issue_id = str(issue.get("id") or "unknown-rule")
+        heading = f"{index}. {issue.get('help') or issue_id}  [{issue.get('impact') or 'severity not supplied'}]"
+        issue_parts = [Paragraph(escape(heading), styles["Heading3"])]
+        issue_parts.append(para(f"Rule ID: {issue_id} · Affected nodes: {issue.get('affected_nodes', len(issue.get('nodes') or []))}"))
+        if issue.get("description"):
+            issue_parts.append(para(issue.get("description"), limit=1000))
+        ai_item = ai_lookup.get(issue_id, {})
+        analysis = ai_item.get("analysis", {}) if isinstance(ai_item, dict) else {}
+        if isinstance(analysis, dict) and analysis:
+            issue_parts.append(para("Gemini explanation: " + str(analysis.get("explanation") or analysis.get("problem") or "Not supplied"), limit=1300))
+            if analysis.get("affected_users"):
+                issue_parts.append(para("Potentially affected users: " + _report_plain(analysis.get("affected_users"), 500), limit=600))
+            if analysis.get("recommended_fix"):
+                issue_parts.append(para("Recommended fix: " + str(analysis.get("recommended_fix")), limit=1100))
+            if analysis.get("wcag_reference"):
+                issue_parts.append(para("WCAG reference supplied by AI: " + str(analysis.get("wcag_reference")), limit=300))
+            patch_data = ai_item.get("patch", {}) if isinstance(ai_item, dict) else {}
+            if not isinstance(patch_data, dict):
+                patch_data = {}
+            original_patch = patch_data.get("original_code")
+            corrected_patch = patch_data.get("corrected_code") or analysis.get("corrected_code")
+            if original_patch:
+                issue_parts.append(para("Original HTML fragment:", limit=100))
+                issue_parts.append(Paragraph(
+                    escape(_report_plain(original_patch, 650)).replace("\n", "<br/>"),
+                    styles["CodeBody"],
+                ))
+            if corrected_patch:
+                issue_parts.append(para("Gemini-suggested HTML correction:", limit=120))
+                issue_parts.append(Paragraph(
+                    escape(_report_plain(corrected_patch, 650)).replace("\n", "<br/>"),
+                    styles["CodeBody"],
+                ))
+        nodes = issue.get("nodes", [])
+        if isinstance(nodes, list) and nodes:
+            first_node = nodes[0] if isinstance(nodes[0], dict) else {}
+            if first_node.get("target"):
+                issue_parts.append(para("Example target: " + _report_plain(first_node.get("target"), 400), limit=500))
+            if first_node.get("failure_summary"):
+                issue_parts.append(para("Scanner details: " + str(first_node.get("failure_summary")), limit=800))
+        issue_parts.append(Spacer(1, 5))
+        story.append(KeepTogether(issue_parts))
+
+    story.append(Paragraph("Browser journey audit", styles["SectionHeading"]))
+    if journey_data:
+        story.append(para(f"Journey test URL: {journey_data.get('url', 'Not recorded')} · Timestamp: {journey_data.get('timestamp', 'Not recorded')}"))
+        journey_rows = [["Test step", "Status", "Details"]]
+        for item in journey_results:
+            if not isinstance(item, dict):
+                continue
+            details = item.get("link_text") or item.get("title") or item.get("error") or ""
+            if item.get("href"):
+                details = f"{details} — {item.get('href')}"
+            if item.get("total_buttons") is not None:
+                details = f"Buttons: {item.get('total_buttons')}"
+            if item.get("total_forms") is not None:
+                details = f"Forms: {item.get('total_forms')}"
+            journey_rows.append([item.get("step", "Test"), item.get("status", "Not supplied"), details or "—"])
+        if len(journey_rows) > 1:
+            story.append(make_table(journey_rows, [48*mm, 26*mm, 100*mm]))
+        else:
+            story.append(para("Journey report exists but contains no test result rows."))
+    else:
+        story.append(para("No browser journey JSON report was available when this report was generated."))
+
+    story.append(Paragraph("Keyboard navigation audit", styles["SectionHeading"]))
+    if keyboard_data:
+        story.append(para(
+            f"Keyboard test URL: {keyboard_data.get('url', 'Not recorded')} · "
+            f"Focusable elements visited: {len(focus_items)}"
+        ))
+        focus_rows = [["Tab order", "Element", "Accessible hint", "Focus visible"]]
+        for idx, item in enumerate(focus_items, start=1):
+            if not isinstance(item, dict):
+                continue
+            hint = item.get("aria_label") or item.get("text") or item.get("id") or item.get("href") or "No label captured"
+            focus_rows.append([idx, item.get("tag", ""), str(hint)[:100], "Yes" if item.get("focus_visible") is True else "Not detected"])
+        if len(focus_rows) > 1:
+            story.append(make_table(focus_rows, [20*mm, 25*mm, 92*mm, 37*mm]))
+        reverse = keyboard_data.get("reverse_navigation")
+        if isinstance(reverse, dict):
+            reverse_hint = reverse.get("aria_label") or reverse.get("text") or reverse.get("id") or reverse.get("tag") or "Unknown"
+            story.append(para(f"Shift + Tab target: {reverse_hint} · Focus visible: {'Yes' if reverse.get('focus_visible') is True else 'Not detected'}"))
+    else:
+        story.append(para("No keyboard navigation JSON report was available when this report was generated."))
+
+    story.append(Paragraph("Methodology and limitations", styles["SectionHeading"]))
+    story.append(para(
+        "WebDoc combines an automated axe-core scan, Gemini-generated explanations and "
+        "remediation suggestions, and Playwright browser checks. Automated results do not "
+        "prove full WCAG conformance. The journey module checks homepage loading, page title, "
+        "up to 10 navigation links, and button/form counts. The keyboard module records up to "
+        "30 Tab focus stops and one Shift+Tab target. These tests do not complete a checkout, "
+        "submit forms, test every route, or replace manual testing with assistive technologies. "
+        "AI suggestions require developer review and a fresh scan before deployment.",
+        limit=1600,
+    ))
+
+    def add_page_number(canvas, document):
+        canvas.saveState()
+        page_w, _ = A4
+        canvas.setStrokeColor(colors.HexColor("#D8E2EA"))
+        canvas.line(17*mm, 13*mm, page_w - 17*mm, 13*mm)
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(muted)
+        canvas.drawString(17*mm, 8*mm, "WebDoc · AI Website Accessibility Doctor")
+        canvas.drawRightString(page_w - 17*mm, 8*mm, f"Page {document.page}")
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
+    return buffer.getvalue()
+
+
+def build_full_report_html(scan_data, ai_data, journey_data, keyboard_data):
+    """Accessible HTML fallback when ReportLab is not installed."""
+    from html import escape
+    import json as _json
+
+    sections = []
+    for title, data in [
+        ("Accessibility scan", scan_data),
+        ("Gemini AI analysis", ai_data),
+        ("Browser journey audit", journey_data),
+        ("Keyboard navigation audit", keyboard_data),
+    ]:
+        if data:
+            pretty = escape(_json.dumps(data, ensure_ascii=False, indent=2))
+            sections.append(f"<section><h2>{escape(title)}</h2><pre>{pretty}</pre></section>")
+        else:
+            sections.append(f"<section><h2>{escape(title)}</h2><p>No report data available.</p></section>")
+    return ("<!doctype html><html lang='en'><meta charset='utf-8'><title>WebDoc Full Audit Report</title>"
+            "<style>body{font:15px/1.6 Arial,sans-serif;max-width:1050px;margin:40px auto;padding:0 24px;color:#18334b}"
+            "h1,h2{color:#173f60}section{margin:30px 0;padding:20px;border:1px solid #d7e4ef;border-radius:12px}"
+            "pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f8fc;padding:14px;border-radius:8px;font-size:12px}"
+            "@media print{body{margin:12mm auto}section{break-inside:avoid}}</style><body>"
+            "<h1>WebDoc — Full Accessibility Audit Report</h1>"
+            f"<p>Generated: {escape(__import__('datetime').datetime.now().isoformat(timespec='seconds'))}</p>"
+            + "".join(sections) + "</body></html>")
+
+
+def render_full_report_download():
+    """Render the same full-report export on Dashboard and Journey pages."""
+    scan_data = load_latest_scan_data()
+    ai_data = read_optional_json(AI_RESULTS_FILE)
+    journey_data = read_optional_json(PROJECT_DIR / "data" / "journey_results.json")
+    keyboard_data = read_optional_json(PROJECT_DIR / "data" / "keyboard_results.json")
+
+    if not any((scan_data, ai_data, journey_data, keyboard_data)):
+        st.info("Run a website scan or Journey audit before exporting a report.")
+        return
+
+    website = (
+        (scan_data or {}).get("final_url")
+        or (scan_data or {}).get("url")
+        or (journey_data or {}).get("url")
+        or (keyboard_data or {}).get("url")
+        or "website"
+    )
+    safe_site = re.sub(r"[^A-Za-z0-9.-]+", "_", urlparse(website).hostname or "website")
+    report_date = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M")
+
+    st.markdown("### Export your WebDoc audit")
+    st.caption("One report containing the latest scan findings, Gemini guidance, journey checks and keyboard-focus results available on this device.")
+    try:
+        pdf_bytes = build_full_report_pdf(scan_data, ai_data, journey_data, keyboard_data)
+        st.download_button(
+            "⬇  Download Full Report (PDF)",
+            data=pdf_bytes,
+            file_name=f"WebDoc_Accessibility_Report_{safe_site}_{report_date}.pdf",
+            mime="application/pdf",
+            type="primary",
+            width="stretch",
+            key=f"wd_full_report_pdf_{st.session_state.get('wd_page', 'page')}",
+        )
+    except ImportError:
+        html_report = build_full_report_html(scan_data, ai_data, journey_data, keyboard_data)
+        st.download_button(
+            "⬇  Download Full Report (HTML)",
+            data=html_report.encode("utf-8"),
+            file_name=f"WebDoc_Accessibility_Report_{safe_site}_{report_date}.html",
+            mime="text/html",
+            type="primary",
+            width="stretch",
+            key=f"wd_full_report_html_{st.session_state.get('wd_page', 'page')}",
+        )
+        st.info("PDF export needs ReportLab. Install it with: python -m pip install reportlab. HTML report export is available now.")
+
+
 def load_latest_scan_data():
     """Load the newest persisted scan so all result pages stay in sync."""
     if SCANNER_RESULTS_FILE.exists():
@@ -473,6 +903,9 @@ elif selected_page == "Dashboard":
         scan_timestamp = scan_data.get("timestamp")
         if scan_timestamp:
             st.caption(f"Latest scan: {scan_timestamp}")
+
+        render_full_report_download()
+        st.divider()
 
         def dashboard_count(value, fallback=0):
             try:
@@ -1860,7 +2293,7 @@ form,button,a,input,select,textarea{{pointer-events:none}}
                 'style="display:block;width:100%;height:330px;border:0;border-radius:14px;background:#f2f5fa" '
                 f'srcdoc="{srcdoc}"></iframe>'
             )
-            st.components.v1.html(iframe, height=340, scrolling=False)
+            st.iframe(iframe, height=340)
 
         st.markdown("## Visual comparison")
         st.caption("The two panels render the supplied HTML fragments in isolated browser frames. This is a focused component preview, not a pixel-perfect copy of the live website.")
@@ -2179,6 +2612,9 @@ elif selected_page == "Journey":
         with st.expander("View browser test logs"):
             for log_item in saved_logs:
                 st.code(log_item[-6000:])
+
+    st.divider()
+    render_full_report_download()
 
 
 st.divider()
