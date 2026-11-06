@@ -1202,19 +1202,233 @@ elif selected_page == "AI Co-Pilot":
 
 
 elif selected_page == "Preview":
-    page_heading("REMEDIATION", "Before & <span>after.</span>", "Compare the original page with a temporary corrected preview.")
-    before, after = st.columns(2)
-    with before:
-        with st.container(border=True):
-            st.markdown("**Original example**")
-            st.code('<button></button>', language="html")
-            st.error("Accessible name missing")
-    with after:
-        with st.container(border=True):
-            st.markdown("**Corrected example**")
-            st.code('<button aria-label="Submit">Submit</button>', language="html")
-            st.success("Accessible name added — still requires re-scan verification")
-    st.caption("The preview will use Person 2's patch output and a sandboxed rendering step.")
+    page_heading(
+        "REMEDIATION",
+        "Before & <span>after.</span>",
+        "Inspect a scanner-captured HTML fragment beside its AI-suggested correction.",
+    )
+
+    st.info(
+        "This is an isolated fragment preview, not a reproduction of the complete website. "
+        "Scripts, forms, external frames and network-loaded assets are blocked. "
+        "The live website is never modified."
+    )
+
+    # Always load the latest persisted scan and AI result files.
+    scan_data = load_latest_scan_data()
+    ai_data = None
+
+    if AI_RESULTS_FILE.exists():
+        try:
+            with AI_RESULTS_FILE.open("r", encoding="utf-8") as file:
+                loaded_ai = json.load(file)
+            if isinstance(loaded_ai, dict):
+                ai_data = loaded_ai
+        except (json.JSONDecodeError, OSError) as exc:
+            st.error(f"Could not read AI analysis results: {exc}")
+    else:
+        st.info("No AI analysis results are available yet. Run a website scan first.")
+
+    ai_results = ai_data.get("results", []) if isinstance(ai_data, dict) else []
+    if not isinstance(ai_results, list):
+        ai_results = []
+
+    failed_results = [
+        item for item in ai_results
+        if isinstance(item, dict)
+        and (item.get("status") == "failed" or item.get("error"))
+    ]
+
+    # A preview candidate must contain actual generated corrected HTML.
+    preview_candidates = []
+    for item in ai_results:
+        if not isinstance(item, dict):
+            continue
+
+        analysis = item.get("analysis")
+        if not isinstance(analysis, dict):
+            continue
+
+        patch = item.get("patch")
+        if not isinstance(patch, dict):
+            patch = {}
+
+        corrected_code = (
+            patch.get("corrected_code")
+            or analysis.get("corrected_code")
+            or ""
+        )
+        if isinstance(corrected_code, str) and corrected_code.strip():
+            preview_candidates.append(item)
+
+    if not preview_candidates:
+        if failed_results:
+            quota_limited = any(
+                "429" in str(item.get("error", ""))
+                or "RESOURCE_EXHAUSTED" in str(item.get("error", ""))
+                for item in failed_results
+            )
+            if quota_limited:
+                st.warning(
+                    "Gemini did not generate corrected HTML for the latest scan because "
+                    "the API request quota/rate limit was exceeded. No demo correction "
+                    "is shown here. Once Gemini is available, run a new scan to generate "
+                    "real before-and-after previews."
+                )
+            else:
+                st.warning(
+                    "The latest AI analysis contains failed requests, so there are no "
+                    "generated corrections available to preview."
+                )
+            st.caption(f"Failed AI analyses: {len(failed_results)}")
+        else:
+            st.info(
+                "No generated HTML correction is available yet. After Gemini returns "
+                "a correction, it will appear here automatically."
+            )
+    else:
+        def preview_option_label(item):
+            analysis = item.get("analysis") or {}
+            issue_id = item.get("issue_id") or "Accessibility issue"
+            problem = analysis.get("problem") or "Generated HTML correction"
+            return f"{issue_id} — {problem}"
+
+        selected_preview_index = st.selectbox(
+            "Choose an AI-generated correction",
+            range(len(preview_candidates)),
+            format_func=lambda index: preview_option_label(
+                preview_candidates[index]
+            ),
+            key="preview_issue_index",
+        )
+
+        selected_item = preview_candidates[selected_preview_index]
+        selected_analysis = selected_item.get("analysis") or {}
+        selected_patch = selected_item.get("patch") or {}
+        selected_issue_id = selected_item.get("issue_id") or "unknown-rule"
+
+        original_code = selected_patch.get("original_code") or ""
+        corrected_code = (
+            selected_patch.get("corrected_code")
+            or selected_analysis.get("corrected_code")
+            or ""
+        )
+        validation = selected_patch.get("validation") or {}
+        verification_status = selected_patch.get("verification_status") or "not provided"
+        patch_applicable = selected_patch.get("patch_applicable")
+        human_review_required = selected_patch.get("human_review_required")
+        if human_review_required is None:
+            human_review_required = selected_analysis.get("human_review_required")
+
+        # If the remediation package did not include original HTML, retrieve
+        # the first matching node fragment from the latest scanner output.
+        if not original_code and isinstance(scan_data, dict):
+            for violation in scan_data.get("violations", []):
+                if not isinstance(violation, dict):
+                    continue
+                if violation.get("id") != selected_issue_id:
+                    continue
+                nodes = violation.get("nodes") or []
+                if nodes and isinstance(nodes[0], dict):
+                    original_code = nodes[0].get("html") or ""
+                break
+
+        status_cols = st.columns(3)
+        with status_cols[0]:
+            if validation.get("valid") is True:
+                st.success("Static validation passed")
+            elif validation.get("valid") is False:
+                st.warning("Static validation failed")
+            else:
+                st.info("Validation not available")
+        with status_cols[1]:
+            st.metric("Verification", str(verification_status).replace("_", " ").title())
+        with status_cols[2]:
+            st.metric(
+                "Human review",
+                "Required" if human_review_required else "Not flagged",
+            )
+
+        if patch_applicable is False:
+            st.warning(
+                "This patch is not marked for automatic application. "
+                "The preview below is for inspection only."
+            )
+        elif patch_applicable is True:
+            st.info(
+                "The static validator marked this patch as applicable, but it is "
+                "not verified until a fresh accessibility scan is completed."
+            )
+
+        if validation.get("valid") is not True:
+            st.warning(
+                "The corrected fragment will be shown as code only because it did "
+                "not pass the available static validation checks."
+            )
+
+        code_before, code_after = st.columns(2)
+        with code_before:
+            with st.container(border=True):
+                st.markdown("**Original HTML fragment**")
+                if original_code:
+                    st.code(str(original_code)[:12000], language="html")
+                else:
+                    st.info("The scanner did not provide an original HTML fragment for this rule.")
+        with code_after:
+            with st.container(border=True):
+                st.markdown("**AI-suggested correction**")
+                st.code(str(corrected_code)[:12000], language="html")
+
+        from html import escape as html_escape
+
+        def render_isolated_fragment(fragment, title):
+            """Render untrusted HTML in a nested, script-disabled iframe."""
+            document = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {{ font-family: Arial, sans-serif; color: #18334b; background: #ffffff; padding: 16px; margin: 0; overflow-wrap: anywhere; }}
+a {{ pointer-events: none; }}
+img, video, iframe {{ max-width: 100%; }}
+</style>
+</head>
+<body>{fragment}</body>
+</html>"""
+            srcdoc = html_escape(document, quote=True)
+            iframe = (
+                f'<iframe title="{html_escape(title, quote=True)}" '
+                'sandbox="" referrerpolicy="no-referrer" '
+                'style="display:block;width:100%;height:260px;border:1px solid #d7e4ef;'
+                'border-radius:10px;background:white" '
+                f'srcdoc="{srcdoc}"></iframe>'
+            )
+            st.components.v1.html(iframe, height=275, scrolling=False)
+
+        st.subheader("Isolated visual preview")
+        before_preview, after_preview = st.columns(2)
+
+        with before_preview:
+            st.markdown("**Before**")
+            if original_code:
+                render_isolated_fragment(original_code, "Original HTML fragment preview")
+            else:
+                st.info("Original fragment preview unavailable.")
+
+        with after_preview:
+            st.markdown("**After**")
+            if validation.get("valid") is True:
+                render_isolated_fragment(corrected_code, "Corrected HTML fragment preview")
+            else:
+                st.info("Corrected preview is disabled until static validation passes.")
+
+        st.caption(
+            "This preview renders only the supplied HTML fragment. It does not load "
+            "the original page stylesheet, JavaScript, external resources or full layout. "
+            "Review the correction and run a fresh scan before considering it verified."
+        )
 
 
 elif selected_page == "Journey":
